@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -92,7 +94,7 @@ def architecture():
     ax.text(0.4, 1.6, "Mode/arm mapping: SITL aux table\nKnob→CH8 mapping: hid2msp JSON",
             fontsize=8.6, color=GREY, va="top", linespacing=1.4)
 
-    fig.savefig("docs/architecture.png", bbox_inches="tight", facecolor="white")
+    fig.savefig(Path(__file__).resolve().parent / "architecture.png", bbox_inches="tight", facecolor="white")
     plt.close(fig)
 
 
@@ -141,7 +143,7 @@ def sequence():
                       "CH9 = 2000 → NAV LAUNCH permanently enabled",
             fontsize=9.2, color=NAVY, linespacing=1.5)
 
-    fig.savefig("docs/sequence.png", bbox_inches="tight", facecolor="white")
+    fig.savefig(Path(__file__).resolve().parent / "sequence.png", bbox_inches="tight", facecolor="white")
     plt.close(fig)
 
 
@@ -184,7 +186,7 @@ def startup():
     ax.text(7.2, 2.35, "One client per UART", fontsize=9.2, color="#6a4c93", fontweight="bold")
     ax.text(7.2, 2.05, "Do not point two apps at the same port.", fontsize=8.5, color=GREY)
 
-    fig.savefig("docs/startup.png", bbox_inches="tight", facecolor="white")
+    fig.savefig(Path(__file__).resolve().parent / "startup.png", bbox_inches="tight", facecolor="white")
     plt.close(fig)
 
 

@@ -7,6 +7,7 @@ Move only the requested stick axis each step, then press Enter.
 import json
 import os
 import time
+from pathlib import Path
 
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import pygame
@@ -63,9 +64,10 @@ def main():
     print("=== 汇总 ===")
     for key, _ in STEPS:
         print(key, result[key])
-    with open("calibration.json", "w", encoding="utf-8") as f:
+    out = Path(__file__).resolve().parent.parent / "config" / "calibration.json"
+    with open(out, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2, ensure_ascii=False)
-    print("\n已写入 calibration.json")
+    print(f"\n已写入 {out}")
     pygame.quit()
     return 0
 

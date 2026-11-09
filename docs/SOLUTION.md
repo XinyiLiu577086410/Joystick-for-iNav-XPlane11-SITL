@@ -1,6 +1,6 @@
 # macOS 上 X-Plane 11 + INAV SITL + HID 手柄当 Receiver：调研与实施方案
 
-> 当前实际使用的安装、启动、通道映射和 Configurator 配置见 [README.md](README.md)；本文是方案调研与历史设计记录。
+> 当前实际使用的安装、启动、通道映射和 Configurator 配置见 [README.md](../README.md)；本文是方案调研与历史设计记录。
 
 > 适用环境：macOS（Intel / Apple Silicon）、X-Plane 11.55、INAV Configurator 9.x、INAV SITL 9.0.0  
 > 结论先行：**可行**。先走方案 A（零代码，30–60 分钟能飞）；需要“手柄像 MSP 接收机、16 通道、按键做模式”时走方案 B；只有必须验证 INAV 自身 elevon/V-tail 混控时，才需要方案 C 的自定义舵面桥。
@@ -27,7 +27,7 @@
 ### 1.1 三个关键事实
 
 1. **macOS 版 INAV Configurator 自带 SITL 可执行文件**，而且是 universal binary（x86_64 + arm64），不需要自己编译。本机文件：
-   `inav-configurator/resources/public/sitl/macos/inav_SITL`
+   `3rdparty/inav-configurator/resources/public/sitl/macos/inav_SITL`
    运行 `--help` 显示 `INAV 9.0.0 SITL`。
 
 2. **INAV SITL 原生支持 X-Plane 11/12**，通过 X-Plane 的 UDP `RREF`/`DREF` 接口，不是必须装 HITL 插件。`--sim=xp` 就是原生模式。
@@ -127,7 +127,7 @@ M01-01,S03-02,S01-03,S04-04
 - S4（Rudder）→ 槽 4（Yaw）
 - S2（Flapperon 1）不参与，因为 X-Plane 只需要一个 roll 轴，它会自己把 roll 分配给左右副翼。
 
-这也是 `inav/docs/SITL/X-Plane.md` 里给出的示例。注意：这个 map 只对“Airplane（有尾翼）”预设成立；如果你在 INAV 里选 Flying Wing，S1/S2 是左右 elevon，再这样映射就会把混控“混两次”，飞机动作会不对。
+这也是 `3rdparty/inav/docs/SITL/X-Plane.md` 里给出的示例。注意：这个 map 只对“Airplane（有尾翼）”预设成立；如果你在 INAV 里选 Flying Wing，S1/S2 是左右 elevon，再这样映射就会把混控“混两次”，飞机动作会不对。
 
 ### 2.4 HITL 插件的能力边界
 
@@ -203,7 +203,7 @@ X-Plane 11  ──UDP RREF/DREF (49000/49001)──►  INAV SITL (--sim=xp)
      ```
      路径因打包方式可能不同，也可以直接用本仓库的：
      ```bash
-     chmod +x inav-configurator/resources/public/sitl/macos/inav_SITL
+     chmod +x 3rdparty/inav-configurator/resources/public/sitl/macos/inav_SITL
      ```
 
 3. **手柄**
@@ -283,7 +283,7 @@ X-Plane 11  ──UDP RREF/DREF (49000/49001)──►  INAV SITL (--sim=xp)
 **命令行等价写法：**
 
 ```bash
-./inav-configurator/resources/public/sitl/macos/inav_SITL \
+./3rdparty/inav-configurator/resources/public/sitl/macos/inav_SITL \
   --path="$HOME/Library/Application Support/inav-configurator/standard-x-plane.bin" \
   --sim=xp \
   --simip=127.0.0.1 \
@@ -330,7 +330,7 @@ X-Plane 11  ──UDP RREF/DREF (49000/49001)──►  INAV SITL (--sim=xp)
 HID 手柄
    │  pygame / SDL2
    ▼
-hid2msp.py  ──TCP 5762, MSP_SET_RAW_RC──►  INAV SITL UART3 (receiver_type=MSP)
+scripts/hid2msp.py  ──TCP 5762, MSP_SET_RAW_RC──►  INAV SITL UART3 (receiver_type=MSP)
                                                    │
 X-Plane 11 ◄── HITL 插件 ──TCP 5761, MSP──────────┘
                                                    │
@@ -343,7 +343,7 @@ Configurator ──TCP 5760, MSP────────────────
 |---|---|---|
 | 5760 | UART1 | Configurator |
 | 5761 | UART2 | INAV-X-Plane-HITL 插件 |
-| 5762 | UART3 | `hid2msp.py` 手柄桥 |
+| 5762 | UART3 | `scripts/hid2msp.py` 手柄桥 |
 
 ### 4.2 为什么用 MSP，而不是虚拟串口/SBUS
 
@@ -381,12 +381,12 @@ $M<  len  cmd(200)  ch1_lo ch1_hi ... ch16_lo ch16_hi  xor
 6. Modes：ARM 放 CH5，ANGLE/HORIZON 放 CH6。
 7. 保存。
 
-### 4.4 手柄桥 `hid2msp.py`
+### 4.4 手柄桥 `scripts/hid2msp.py`
 
 本仓库已经提供：
 
-- `hid2msp.py`：读取 HID 手柄，映射为 16 通道，通过 TCP 发 MSP。
-- `hid2msp.example.json`：映射配置示例。
+- `scripts/hid2msp.py`：读取 HID 手柄，映射为 16 通道，通过 TCP 发 MSP。
+- `config/hid2msp.example.json`：映射配置示例。
 
 安装依赖：
 
@@ -397,7 +397,7 @@ python3 -m pip install --upgrade pygame
 先看手柄的轴/按键编号：
 
 ```bash
-python3 hid2msp.py --list
+python3 scripts/hid2msp.py --list
 ```
 
 它会打印手柄名称、轴数、按键数，并实时显示 `axes=[...] buttons=[...]`。不同手柄的编号不同，必须按实际输出改配置。
@@ -415,14 +415,14 @@ python3 hid2msp.py --list
 | CH7 | 备用 | button 2 |
 | CH8 | 备用 | button 3 |
 
-改 `hid2msp.example.json` 后运行：
+改 `config/hid2msp.example.json` 后运行：
 
 ```bash
 # 先空跑：不读手柄，发缓慢的正弦扫掠，CH5 保持 1000（不解锁）
-python3 hid2msp.py --port 5762 --test -v
+python3 scripts/hid2msp.py --port 5762 --test -v
 
 # 正式运行（需要手柄）
-python3 hid2msp.py --config hid2msp.example.json --port 5762 -v
+python3 scripts/hid2msp.py --config config/hid2msp.example.json --port 5762 -v
 ```
 
 `--test` 适合在 Configurator 的 Receiver 页确认 MSP 链路和通道变化；它不读手柄。  
@@ -431,7 +431,7 @@ python3 hid2msp.py --config hid2msp.example.json --port 5762 -v
 ### 4.5 与 HITL 插件联用
 
 1. 先启动 SITL（configurator-only）。
-2. 启动 `hid2msp.py --port 5762`。
+2. 启动 `scripts/hid2msp.py --port 5762`。
 3. 启动 X-Plane，加载带 INAV-X-Plane-HITL 插件的机型（如 INAV Surfwing）。
 4. 插件菜单 → `Connect to SITL` → 选 `127.0.0.1:5761`。
 5. Configurator 仍连 5760。
@@ -468,7 +468,7 @@ xattr -rd com.apple.quarantine \
 
 **不要做的事：**
 
-- 不要在 `hid2msp.py` 里做 elevon 混控再送给 INAV；INAV 的 Mixer 会再混一次。
+- 不要在 `scripts/hid2msp.py` 里做 elevon 混控再送给 INAV；INAV 的 Mixer 会再混一次。
 - 不要在 INAV 选 Flying Wing 的同时，又用标准 X-Plane 桥的 `S03-02,S01-03` 映射；会双重混控。
 
 ### 4.7 优缺点
@@ -498,7 +498,7 @@ xattr -rd com.apple.quarantine \
 
 ### 5.1 原理
 
-1. `hid2msp.py` 继续向 SITL 的 UART3 发 `MSP_SET_RAW_RC`。
+1. `scripts/hid2msp.py` 继续向 SITL 的 UART3 发 `MSP_SET_RAW_RC`。
 2. 新写一个 `servo2xplane.py`（或 X-Plane 插件），向 SITL 的另一个 UART 发 MSP 请求：
    - `MSP_SERVO`（103）：读每个舵机输出；
    - `MSP_MOTOR`（104）：读电机输出。
@@ -606,7 +606,7 @@ sim_vehicle.py -D -f xplane --console --map
 | SITL 一直 `Waiting for connection...` | 端口不一致 / 防火墙 / 缺少 XITL dataref | 确认 X-Plane receive 端口 = `--simport`；允许 UDP；试 49000/49001；仍不行则装 INAV-X-Plane-XITL 插件，或改用 HITL 插件的 SITL 连接模式 |
 | Configurator 连不上 | 5760 被占用 / SITL 没启动 | `lsof -nP -iTCP:5760`；重启 SITL |
 | 手柄在 X-Plane 里没反应 | macOS 输入监控 / 未校准 | 系统设置 → 隐私与安全 → 输入监控；X-Plane 里校准 |
-| pygame 找不到手柄 | SDL2 不识别 / 权限 | `python3 hid2msp.py --list`；换 USB/蓝牙；给 Terminal 输入监控 |
+| pygame 找不到手柄 | SDL2 不识别 / 权限 | `python3 scripts/hid2msp.py --list`；换 USB/蓝牙；给 Terminal 输入监控 |
 | 通道方向反了 | X-Plane 轴方向 / INAV 通道方向 | 只在一处反向；先在 Receiver 页确认 |
 | 混控动作怪异 | INAV Flying Wing + X-Plane 又混一次 | 改 INAV 为 Airplane，或做方案 C |
 | HITL 插件连不上 SITL | 端口被 Configurator 占用 | Configurator 5760、插件 5761、桥 5762 |
@@ -648,9 +648,9 @@ sim_vehicle.py -D -f xplane --console --map
 
 | 文件 | 用途 |
 |---|---|
-| `hid2msp.py` | HID 手柄 → MSP `SET_RAW_RC` 桥 |
-| `hid2msp.example.json` | 手柄轴/按键映射示例 |
-| `inav-configurator/resources/public/sitl/macos/inav_SITL` | macOS universal SITL 二进制 |
+| `scripts/hid2msp.py` | HID 手柄 → MSP `SET_RAW_RC` 桥 |
+| `config/hid2msp.example.json` | 手柄轴/按键映射示例 |
+| `3rdparty/inav-configurator/resources/public/sitl/macos/inav_SITL` | macOS universal SITL 二进制 |
 | `INAV-X-Plane-HITL/` | X-Plane HITL 插件源码/文档 |
 
 ## 附录 B：最小 MSP 帧示例
@@ -668,7 +668,7 @@ for b in body:
 frame = b"$M<" + body + bytes([cs])
 ```
 
-把这 38 字节发到 SITL 的 MSP UART TCP 端口即可。`hid2msp.py` 做的就是这件事，外加手柄读取、死区、反向、按键切换和断线重连。
+把这 38 字节发到 SITL 的 MSP UART TCP 端口即可。`scripts/hid2msp.py` 做的就是这件事，外加手柄读取、死区、反向、按键切换和断线重连。
 
 ---
 

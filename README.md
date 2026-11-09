@@ -19,13 +19,13 @@
 cd "$HOME/Desktop/Read-the-Source-Code/hid-as-rx"
 
 # 终端 A：SITL
-./start_sitl.sh
+./scripts/start_sitl.sh
 
 # 终端 B：手柄桥（先把 SWB 拨到低位）
-./start_bridge.sh
+./scripts/start_bridge.sh
 
 # 检查端口
-./check_ports.sh
+./scripts/check_ports.sh
 ```
 
 然后：
@@ -48,7 +48,7 @@ cd "$HOME/Desktop/Read-the-Source-Code/hid-as-rx"
 | **X-Plane 11** | 11.55r2，Steam 版 | 飞机物理、渲染、HITL 插件宿主 | 是 |
 | **INAV Configurator** | 9.0.0 | 配置 SITL；自带 macOS SITL 二进制 | 是 |
 | **INAV SITL** | 9.0.0，Configurator 内置 | 运行飞控逻辑 | 是 |
-| **INAV HITL 插件 + INAV Surfwing** | `INAV-X-Plane-HITL/release/` | 把 X-Plane 传感器/控制/OSD 接到 SITL | 是 |
+| **INAV HITL 插件 + INAV Surfwing** | `3rdparty/INAV-X-Plane-HITL/release/` | 把 X-Plane 传感器/控制/OSD 接到 SITL | 是 |
 | **Python 3** | 3.10+ | 运行 `hid2msp.py` 和标定脚本 | 是 |
 | **pygame** | 2.x | 读取 HID 手柄/遥控器 | 是 |
 | **HID 手柄/遥控器** | USB HID | 提供 AETR、旋钮、开关 | 是 |
@@ -104,54 +104,55 @@ cd "$HOME/Desktop/Read-the-Source-Code/hid-as-rx"
 > 本仓库只包含 `hid-as-rx` 自己的代码、配置和文档；不包含三个上游源码仓库。首次使用请在同级目录单独准备：
 >
 > ```bash
+> cd 3rdparty
 > git clone https://github.com/RomanLut/INAV-X-Plane-HITL.git
 > git clone https://github.com/iNavFlight/inav.git                  # 仅源码参考，可选
 > git clone https://github.com/iNavFlight/inav-configurator.git     # 仅源码参考，可选
 > ```
 >
-> 运行时真正需要的是 **INAV-X-Plane-HITL 的 `release/`** 和 **INAV Configurator 9.0.0 应用**。
+> 运行时真正需要的是 **`3rdparty/INAV-X-Plane-HITL` 的 `release/`** 和 **INAV Configurator 9.0.0 应用**。
 
 ### 2.1 配置文件分类
 
 | 分类 | 文件/位置 | 谁读取 | 作用 |
 |---|---|---|---|
-| **SITL 运行时配置** | `.sitl/plane.bin` | SITL 每次启动读取 | 真正的飞控 eeprom，所有 `set/serial/aux/osd` 最终都在这里 |
-| **SITL 源配置** | [XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt](XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt) | 人/Configurator CLI | 可读写的 CLI 源文件；加载进 eeprom 后才生效 |
-| **HID 映射** | [hid2msp_xiaoweng.json](hid2msp_xiaoweng.json) | `hid2msp.py` 每次启动 | 轴/按键 → CH1–CH9、六段模式、CH9 常高 |
-| **通用示例** | [hid2msp.example.json](hid2msp.example.json) | 仅参考 | Xbox 风格示例，不是当前配置 |
-| **标定结果** | `calibration.json` | 人/`calibrate_hid.py` | 可选；脚本生成，已被 `.gitignore` 忽略 |
-| **启动脚本** | [start_sitl.sh](start_sitl.sh)、[start_bridge.sh](start_bridge.sh)、[check_ports.sh](check_ports.sh) | 人 | 带起组件 |
-| **文档/图** | `README.md`、`SOLUTION.md`、`docs/*.png` | 人 | 说明与架构/时序图 |
-| **上游仓库** | `inav/`、`inav-configurator/`、`INAV-X-Plane-HITL/` | 不参与运行 | 本地参考；`.gitignore` 排除 |
+| **SITL 运行时配置** | `config/runtime/plane.bin` | SITL 每次启动读取 | 真正的飞控 eeprom，所有 `set/serial/aux/osd` 最终都在这里 |
+| **SITL 源配置** | [XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt](config/XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt) | 人/Configurator CLI | 可读写的 CLI 源文件；加载进 eeprom 后才生效 |
+| **HID 映射** | [hid2msp_xiaoweng.json](config/hid2msp_xiaoweng.json) | `scripts/hid2msp.py` 每次启动 | 轴/按键 → CH1–CH9、六段模式、CH9 常高 |
+| **通用示例** | [hid2msp.example.json](config/hid2msp.example.json) | 仅参考 | Xbox 风格示例，不是当前配置 |
+| **标定结果** | `config/calibration.json` | 人/`scripts/calibrate_hid.py` | 可选；脚本生成，已被 `.gitignore` 忽略 |
+| **启动脚本** | [start_sitl.sh](scripts/start_sitl.sh)、[start_bridge.sh](scripts/start_bridge.sh)、[check_ports.sh](scripts/check_ports.sh) | 人 | 带起组件 |
+| **文档/图** | `README.md`、`docs/SOLUTION.md`、`docs/*.png` | 人 | 说明与架构/时序图 |
+| **上游仓库** | `3rdparty/inav/`、`3rdparty/inav-configurator/`、`3rdparty/INAV-X-Plane-HITL/` | 不参与运行 | 本地参考；`.gitignore` 排除 |
 
 已删除的旧文件（避免误用）：
 
 - `XIAOWENG_SITL_6modes.txt`（旧 SWA 3×2 版本）
 - `XIAOWENG_SITL_MINIMAL.txt`（带 `defaults noreboot` 的旧重载版本）
 - `hid2msp_xiaoweng.example.json`（旧模板）
-- `.sitl/*.log`、`.sitl/*.bak`、`.sitl/*.py`（开发调试产物）
+- 开发期 `.sitl/` 下的日志、备份和临时脚本（已删除）
 
 ### 2.2 文件清单
 
 | 文件 | 作用 |
 |---|---|
 | [README.md](README.md) | 本文件：安装、启动、配置、排错 |
-| [SOLUTION.md](SOLUTION.md) | 更完整的调研、方案 A/B/C/D、HITL 适配评估 |
-| [hid2msp.py](hid2msp.py) | HID → MSP 接收机桥 |
-| [hid2msp_xiaoweng.json](hid2msp_xiaoweng.json) | **当前实际使用**的手柄/遥控器映射 |
-| [hid2msp.example.json](hid2msp.example.json) | 通用 Xbox 风格示例 |
-| [calibrate_hid.py](calibrate_hid.py) | 交互式摇杆标定脚本 |
-| [XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt](XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt) | **唯一 SITL CLI 源配置** |
-| [start_sitl.sh](start_sitl.sh) | 启动 SITL |
-| [start_bridge.sh](start_bridge.sh) | 启动手柄桥 |
-| [check_ports.sh](check_ports.sh) | 检查 5760–5763 |
+| [SOLUTION.md](docs/SOLUTION.md) | 更完整的调研、方案 A/B/C/D、HITL 适配评估 |
+| [hid2msp.py](scripts/hid2msp.py) | HID → MSP 接收机桥 |
+| [hid2msp_xiaoweng.json](config/hid2msp_xiaoweng.json) | **当前实际使用**的手柄/遥控器映射 |
+| [hid2msp.example.json](config/hid2msp.example.json) | 通用 Xbox 风格示例 |
+| [calibrate_hid.py](scripts/calibrate_hid.py) | 交互式摇杆标定脚本 |
+| [XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt](config/XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt) | **唯一 SITL CLI 源配置** |
+| [start_sitl.sh](scripts/start_sitl.sh) | 启动 SITL |
+| [start_bridge.sh](scripts/start_bridge.sh) | 启动手柄桥 |
+| [check_ports.sh](scripts/check_ports.sh) | 检查 5760–5763 |
 | `docs/architecture.png` | 架构图 |
 | `docs/startup.png` | 启动时序图 |
 | `docs/sequence.png` | 运行时序图 |
 | `docs/make_diagrams.py` | 重新生成三张图 |
-| `.sitl/plane.bin` | SITL 运行时 eeprom（配置真正生效的地方） |
+| `config/runtime/plane.bin` | SITL 运行时 eeprom（配置真正生效的地方） |
 
-> `.sitl/` 是运行时目录，不是源码。不要直接编辑 `plane.bin`，用 Configurator/CLI 修改。
+> `config/runtime/` 是运行时目录，不是源码。不要直接编辑 `plane.bin`，用 Configurator/CLI 修改。
 
 ---
 
@@ -170,7 +171,7 @@ cd "$HOME/Desktop/Read-the-Source-Code/hid-as-rx"
 
 ```bash
 XP="$HOME/Library/Application Support/Steam/steamapps/common/X-Plane 11"
-cp -R "INAV-X-Plane-HITL/release/Aircraft/Extra Aircraft/NK_FPVSurfwing" \
+cp -R "3rdparty/INAV-X-Plane-HITL/release/Aircraft/Extra Aircraft/NK_FPVSurfwing" \
       "$XP/Aircraft/Extra Aircraft/"
 ```
 
@@ -212,7 +213,7 @@ New Flight → Select Aircraft → Show extra aircraft from old versions
 
 ```bash
 python3 -m pip install --upgrade pygame
-python3 hid2msp.py --list
+python3 scripts/hid2msp.py --list
 ```
 
 `--list` 会打印手柄名称、轴数/按键数，并实时显示：
@@ -381,21 +382,21 @@ aux 8 28 1 1950 2050  # CH6 SWC -> NAV WP
 
 ### 5.3 SITL 每次启动到底读哪个文件
 
-**SITL 启动时只读 `.sitl/plane.bin`。**
+**SITL 启动时只读 `config/runtime/plane.bin`。**
 
 ```bash
-./start_sitl.sh
+./scripts/start_sitl.sh
 # 等价于：
-# inav_SITL --path="$PWD/.sitl/plane.bin"
+# inav_SITL --path="$PWD/config/runtime/plane.bin"
 ```
 
 启动顺序和数据流：
 
 ```text
-XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt   （人可读的 CLI 源文件）
+config/XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt   （人可读的 CLI 源文件）
         │  只在 Configurator CLI 里手动粘贴/加载
         ▼
-.sitl/plane.bin                        （32 KB 飞控 eeprom）
+config/runtime/plane.bin                        （32 KB 飞控 eeprom）
         │  每次 SITL 启动 --path 读取
         ▼
 INAV SITL 运行时配置
@@ -403,11 +404,11 @@ INAV SITL 运行时配置
 
 因此：
 
-- 修改 `XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt` **不会**自动影响正在运行的 SITL；必须重新在 CLI 里加载并 `save`，或重新生成 `.sitl/plane.bin`。
-- `start_sitl.sh` 不会读 `.txt`；它只把 `.sitl/plane.bin` 传给 `--path`。
-- 如果 `.sitl/plane.bin` 不存在，SITL 会生成一份**默认配置**，不是本项目配置；需要按 7.7 加载 CLI。
-- 不要直接编辑 `.sitl/plane.bin`（二进制）；用 Configurator/CLI 修改后 `save`。
-- 不要在 INAV 9 SITL 上反复执行 `defaults noreboot` + 连续灌 CLI；本次实际遇到过崩溃。需要重置时优先删除/备份 `.sitl/plane.bin`，让 SITL 生成全新 eeprom，再加载 NODEFAULTS 版本。
+- 修改 `config/XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt` **不会**自动影响正在运行的 SITL；必须重新在 CLI 里加载并 `save`，或重新生成 `config/runtime/plane.bin`。
+- `scripts/start_sitl.sh` 不会读 `.txt`；它只把 `config/runtime/plane.bin` 传给 `--path`。
+- 如果 `config/runtime/plane.bin` 不存在，SITL 会生成一份**默认配置**，不是本项目配置；需要按 7.7 加载 CLI。
+- 不要直接编辑 `config/runtime/plane.bin`（二进制）；用 Configurator/CLI 修改后 `save`。
+- 不要在 INAV 9 SITL 上反复执行 `defaults noreboot` + 连续灌 CLI；本次实际遇到过崩溃。需要重置时优先删除/备份 `config/runtime/plane.bin`，让 SITL 生成全新 eeprom，再加载 `config/XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt`。
 
 ---
 
@@ -417,24 +418,24 @@ INAV SITL 运行时配置
 
 ### 6.1 终端 A：SITL
 
-> 首次使用或 `.sitl/plane.bin` 丢失时：SITL 会生成默认配置（不是本项目配置）。先启动 SITL，用 Configurator 连接 5760，按 [7.7](#77-加载-cli-配置) 加载 `XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt`，`save` 并重启 SITL，再继续。
+> 首次使用或 `config/runtime/plane.bin` 丢失时：SITL 会生成默认配置（不是本项目配置）。先启动 SITL，用 Configurator 连接 5760，按 [7.7](#77-加载-cli-配置) 加载 `config/XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt`，`save` 并重启 SITL，再继续。
 
 ```bash
 cd "$HOME/Desktop/Read-the-Source-Code/hid-as-rx"
-./start_sitl.sh
+./scripts/start_sitl.sh
 ```
 
 或手动：
 
 ```bash
 SITL="/Applications/INAV Configurator 9.0.0.app/Contents/Resources/sitl/macos/inav_SITL"
-"$SITL" --path="$PWD/.sitl/plane.bin"
+"$SITL" --path="$PWD/config/runtime/plane.bin"
 ```
 
 启动后应有：
 
 ```text
-[EEPROM] Loaded ... .sitl/plane.bin
+[EEPROM] Loaded ... config/runtime/plane.bin
 [SOCKET] Bind TCP [::]:5760 to UART1
 [SOCKET] Bind TCP [::]:5761 to UART2
 [SOCKET] Bind TCP [::]:5762 to UART3
@@ -447,19 +448,19 @@ SITL="/Applications/INAV Configurator 9.0.0.app/Contents/Resources/sitl/macos/in
 
 ```bash
 cd "$HOME/Desktop/Read-the-Source-Code/hid-as-rx"
-./start_bridge.sh
+./scripts/start_bridge.sh
 ```
 
 或：
 
 ```bash
-python3 hid2msp.py --config hid2msp_xiaoweng.json --port 5762 -v
+python3 scripts/hid2msp.py --config config/hid2msp_xiaoweng.json --port 5762 -v
 ```
 
 ### 6.3 检查端口
 
 ```bash
-./check_ports.sh
+./scripts/check_ports.sh
 ```
 
 期望：
@@ -565,17 +566,17 @@ SITL 没有模拟 MAX7456 模拟 OSD；必须走 **MSP DisplayPort + HD OSD**，
 | CH8 | 旋钮六段模式 |
 | CH9 | 常高 → NAV LAUNCH |
 
-如果 AUX 表丢了，用 `XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt` 重新加载。
+如果 AUX 表丢了，用 `config/XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt` 重新加载。
 
 ### 7.7 加载 CLI 配置
 
 1. Configurator 连接 `127.0.0.1:5760`；
 2. 进入 CLI；
-3. 粘贴 [XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt](XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt) 的内容；
+3. 粘贴 [XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt](config/XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt) 的内容；
 4. `save`；
 5. SITL 重启后重新连接。
 
-> 如果从“非全新 eeprom”恢复，先备份 `.sitl/plane.bin`，再按需使用带 `defaults noreboot` 的版本；遇到 SITL 崩溃就改用 NODEFAULTS 版本 + 全新 eeprom。
+> 如果从“非全新 eeprom”恢复，先备份 `config/runtime/plane.bin`；必要时在 CLI 里执行 `defaults noreboot` 再加载配置。若遇到 SITL 崩溃，删除/替换 eeprom 让 SITL 生成全新配置，再加载 `config/XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt`。
 
 ---
 
@@ -612,15 +613,15 @@ SITL 没有模拟 MAX7456 模拟 OSD；必须走 **MSP DisplayPort + HD OSD**，
 | 没有 `INAV HITL/SITL` 菜单 | 没加载 INAV Surfwing；插件是 Aircraft 插件 | 加载 `INAV Surfwing`；Select Aircraft 里勾选 `Show extra aircraft from old versions` |
 | `UNSUPPORTED AIRCRAFT TYPE` | SITL 平台不是 AIRPLANE | Configurator → Mixer → Platform `AIRPLANE`；或加载已包含 `set platform_type = AIRPLANE` 的配置 |
 | `SUPPORTED OSD TYPE NOT FOUND` | 没有 MSP DisplayPort/HD OSD | UART4 设为 `MSP DisplayPort`，OSD video `AVATAR`，OSD feature 打开 |
-| `unable to arm no rc link` / `FS` | 手柄桥没运行，5762 没有 MSP 帧 | 启动 `hid2msp.py`；`./check_ports.sh` 确认 5762 |
+| `unable to arm no rc link` / `FS` | 手柄桥没运行，5762 没有 MSP 帧 | 启动 `scripts/hid2msp.py`；`./scripts/check_ports.sh` 确认 5762 |
 | 只有 3 个模式 | 旧版用 SWC 做 2×3，SWC 没真正改变 CH6 | 当前版本已改成旋钮直接 6 档；确认 CH8 是否 1000/1200/…/2000 |
-| Pitch 反向 | `reverse` 方向不对 | 改 `hid2msp_xiaoweng.json` 里 CH2 的 `reverse`，重启桥 |
+| Pitch 反向 | `reverse` 方向不对 | 改 `config/hid2msp_xiaoweng.json` 里 CH2 的 `reverse`，重启桥 |
 | 启动桥就自动解锁 | SWB 在高位 | 先拨 SWB 低位，确认 CH7=1000 |
 | `INS_GRAVITY_CMSS` 大字体 | 真机 IMU 校准 system message | 用精简配置，删除 `ins_gravity_cmss`；SITL 值为 0 |
-| SITL CLI 加载崩溃 | `defaults noreboot` + 连续灌命令 | 删除/备份 `.sitl/plane.bin`，用全新 eeprom + `XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt` |
+| SITL CLI 加载崩溃 | `defaults noreboot` + 连续灌命令 | 删除/备份 `config/runtime/plane.bin`，用全新 eeprom + `config/XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt` |
 | Gatekeeper 拦截插件 | quarantine | `xattr -rd com.apple.quarantine .../NK_FPVSurfwing` |
 | Apple Silicon 上 X-Plane 11 打不开 | X-Plane 11 是 x86_64 | 安装 Rosetta 2；`softwareupdate --install-rosetta --agree-to-license` |
-| 端口被占用 | 旧 SITL/桥没退 | `pkill -f inav_SITL`、`pkill -f hid2msp.py`，再 `./check_ports.sh` |
+| 端口被占用 | 旧 SITL/桥没退 | `pkill -f inav_SITL`、`pkill -f hid2msp.py`，再 `./scripts/check_ports.sh` |
 
 ---
 
@@ -629,7 +630,7 @@ SITL 没有模拟 MAX7456 模拟 OSD；必须走 **MSP DisplayPort + HD OSD**，
 ### 10.1 当前状态
 
 - X-Plane 11.55r2 已安装 INAV Surfwing + HITL 插件；
-- INAV SITL 9.0.0 运行在 `.sitl/plane.bin`；
+- INAV SITL 9.0.0 运行在 `config/runtime/plane.bin`；
 - 四个 TCP 端口 5760–5763；
 - `hid2msp.py` 已按实际 HID 标定：
   - Roll=axis5、Pitch=axis0、Throttle=axis1、Yaw=axis4、Knob=axis3；
@@ -652,9 +653,9 @@ SITL 没有模拟 MAX7456 模拟 OSD；必须走 **MSP DisplayPort + HD OSD**，
 ## 11. 安全
 
 - 这是仿真环境，但 **NAV LAUNCH 永久启用**；解锁前确认模型/桨叶周围无人。
-- 真机配置文件是只读参考，不要直接把 `XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt` 刷入真机。
+- 真机配置文件是只读参考，不要直接把 `config/XIAOWENG_SITL_MINIMAL_NODEFAULTS.txt` 刷入真机。
 - 真机使用前重新检查：传感器校准、 failsafe、arm 开关方向、模式优先级、电机/舵机方向。
-- 修改 `hid2msp_xiaoweng.json` 后重启桥，确认 Configurator 的 CH1–CH9 再解锁。
+- 修改 `config/hid2msp_xiaoweng.json` 后重启桥，确认 Configurator 的 CH1–CH9 再解锁。
 
 ---
 
@@ -666,4 +667,4 @@ SITL 没有模拟 MAX7456 模拟 OSD；必须走 **MSP DisplayPort + HD OSD**，
 - ArduPilot X-Plane SITL（替代方案）：<https://ardupilot.org/dev/docs/sitl-with-xplane.html>
 - pygame：<https://www.pygame.org/>
 
-更完整的方案对比（A/B/C/D、HITL 插件 macOS 适配评估）见 [SOLUTION.md](SOLUTION.md)。
+更完整的方案对比（A/B/C/D、HITL 插件 macOS 适配评估）见 [SOLUTION.md](docs/SOLUTION.md)。
