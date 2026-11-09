@@ -4,6 +4,8 @@
 /3rdparty/INAV-X-Plane-HITL/
 
 # Runtime state, generated calibration, logs, OS cruft.
+/run/
+/logs/
 /config/runtime/
 /config/calibration.json
 __pycache__/
