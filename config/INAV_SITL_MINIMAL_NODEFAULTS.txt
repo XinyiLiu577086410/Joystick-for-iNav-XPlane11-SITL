@@ -8,7 +8,7 @@ diff all
 batch start
 
 # ------------------------------------------------------------
-# SITL / HID-gamepad variant of XIAOWENG INAV 8.0.1 config
+# SITL / HID-gamepad variant of INAV 8.0.1 config
 # Do NOT load this into the real aircraft without reviewing it.
 # Channel contract:
 #   CH1 Roll, CH2 Pitch, CH3 Throttle, CH4 Yaw
@@ -230,7 +230,7 @@ set osd_decimals_altitude = 4
 set osd_adsb_distance_alert = 10000
 set osd_plus_code_digits = 12
 set osd_switch_indicator_three_channel = 11
-set name = XIAOWENG-SITL
+set name = INAV-SITL
 set tz_offset = 480
 set nav_fw_land_approach_length = 20000
 set nav_fw_land_glide_alt = 500

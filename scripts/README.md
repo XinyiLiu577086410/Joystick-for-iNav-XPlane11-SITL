@@ -3,7 +3,7 @@
 | 脚本 | 用途 |
 |---|---|
 | `start_sitl.sh` | 启动 INAV SITL，读取 `config/runtime/plane.bin` |
-| `start_bridge.sh` | 启动 `hid2msp.py`，读取 `config/hid2msp_xiaoweng.json` |
+| `start_bridge.sh` | 启动 `hid2msp.py`，读取 `config/hid2msp_inav.json` |
 | `check_ports.sh` | 检查 5760/5761/5762/5763 |
 | `hid2msp.py` | HID 手柄/遥控器 → MSP `SET_RAW_RC` 桥 |
 | `calibrate_hid.py` | 交互式标定 AETR 轴，结果写入 `config/calibration.json` |
