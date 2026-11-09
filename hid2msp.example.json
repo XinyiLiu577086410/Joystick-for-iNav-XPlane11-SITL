@@ -1,0 +1,17 @@
+{
+  "host": "127.0.0.1",
+  "port": 5762,
+  "rate_hz": 50,
+  "axes": [
+    {"axis": 0, "channel": 1, "kind": "bipolar", "trim": 1500, "reverse": false, "deadband": 0.06, "expo": 0.0},
+    {"axis": 1, "channel": 2, "kind": "bipolar", "trim": 1500, "reverse": true,  "deadband": 0.06, "expo": 0.0},
+    {"axis": 5, "channel": 3, "kind": "unipolar", "trim": 1000, "reverse": false},
+    {"axis": 2, "channel": 4, "kind": "bipolar", "trim": 1500, "reverse": false, "deadband": 0.06, "expo": 0.0}
+  ],
+  "buttons": [
+    {"button": 0, "channel": 5, "low": 1000, "high": 2000, "toggle": true},
+    {"button": 1, "channel": 6, "low": 1000, "high": 2000, "toggle": true},
+    {"button": 2, "channel": 7, "low": 1000, "high": 2000, "toggle": true},
+    {"button": 3, "channel": 8, "low": 1000, "high": 2000, "toggle": true}
+  ]
+}

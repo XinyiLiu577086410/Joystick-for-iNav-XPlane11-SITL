@@ -1,0 +1,13 @@
+# Upstream source repositories kept locally as references; not part of this repo.
+/inav/
+/inav-configurator/
+/INAV-X-Plane-HITL/
+
+# Runtime state, logs, generated calibration, OS cruft.
+/.sitl/
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+calibration.json
+*.bak
