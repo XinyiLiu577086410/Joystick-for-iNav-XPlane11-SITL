@@ -627,12 +627,12 @@ SITL 没有模拟 MAX7456 模拟 OSD；必须走 **MSP DisplayPort + HD OSD**，
 
 ## 10. 当前状态与限制
 
-### 10.1 当前状态
+### 10.1 最近一次运行状态（当前已停止）
 
 - X-Plane 11.55r2 已安装 INAV Surfwing + HITL 插件；
-- INAV SITL 9.0.0 运行在 `config/runtime/plane.bin`；
-- 四个 TCP 端口 5760–5763；
-- `hid2msp.py` 已按实际 HID 标定：
+- INAV SITL 9.0.0 使用 `config/runtime/plane.bin`；
+- 运行时四个 TCP 端口 5760–5763；
+- `scripts/hid2msp.py` 已按实际 HID 标定：
   - Roll=axis5、Pitch=axis0、Throttle=axis1、Yaw=axis4、Knob=axis3；
   - SWC=button3、SWB=button2；
 - OSD 走 UART4 MSP DisplayPort + AVATAR；
