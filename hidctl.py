@@ -138,9 +138,55 @@ def process_path(pid: int) -> Path | None:
         kernel32.CloseHandle(handle)
 
 
+class FILETIME(ctypes.Structure):
+    _fields_ = [
+        ("dwLowDateTime", wintypes.DWORD),
+        ("dwHighDateTime", wintypes.DWORD),
+    ]
+
+
+kernel32.GetProcessTimes.argtypes = [
+    wintypes.HANDLE,
+    ctypes.POINTER(FILETIME),
+    ctypes.POINTER(FILETIME),
+    ctypes.POINTER(FILETIME),
+    ctypes.POINTER(FILETIME),
+]
+kernel32.GetProcessTimes.restype = wintypes.BOOL
+
+
+def process_creation_time(pid: int) -> float | None:
+    """Process start time as a Unix timestamp (to detect PID reuse)."""
+    handle = _open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION)
+    if not handle:
+        return None
+    try:
+        creation = FILETIME()
+        exit_time = FILETIME()
+        kernel = FILETIME()
+        user = FILETIME()
+        if not kernel32.GetProcessTimes(
+            handle,
+            ctypes.byref(creation),
+            ctypes.byref(exit_time),
+            ctypes.byref(kernel),
+            ctypes.byref(user),
+        ):
+            return None
+        ticks = (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+        return ticks / 10_000_000 - 11_644_473_600
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def pid_is_component(component: str, pid: int) -> bool:
     if not pid_exists(pid):
         return False
+    created = read_pid_created(component)
+    if created:
+        actual = process_creation_time(pid)
+        if actual is None or abs(actual - created) > 3.0:
+            return False  # PID was reused by another process
     name = process_name(pid).lower()
     if not name:
         # Cannot inspect the process; trust our PID file.
@@ -219,14 +265,25 @@ def read_new_log(component: str, offset: int) -> str:
 def read_pid(component: str) -> int | None:
     path = pid_file(component)
     try:
-        return int(path.read_text().strip())
-    except (FileNotFoundError, ValueError, OSError):
+        first = path.read_text().splitlines()[0]
+        return int(first.strip())
+    except (FileNotFoundError, ValueError, OSError, IndexError):
         return None
+
+
+def read_pid_created(component: str) -> float:
+    """Process creation time stored next to the PID (0 if unknown)."""
+    try:
+        lines = pid_file(component).read_text().splitlines()
+        return float(lines[1]) if len(lines) > 1 else 0.0
+    except (FileNotFoundError, ValueError, OSError):
+        return 0.0
 
 
 def write_pid(component: str, pid: int) -> None:
     ensure_dirs()
-    pid_file(component).write_text(f"{pid}\n")
+    created = process_creation_time(pid) or 0.0
+    pid_file(component).write_text(f"{pid}\n{created:.3f}\n")
 
 
 def remove_pid(component: str) -> None:
@@ -334,6 +391,24 @@ def _running_pids(image_name: str) -> list[int]:
             except ValueError:
                 pass
     return pids
+
+
+def untracked_sitl(our_pid: int | None) -> list[int]:
+    """inav_SITL.exe processes that are not the one in run\\sitl.pid."""
+    return [pid for pid in _running_pids("inav_SITL.exe") if pid != our_pid]
+
+
+def untracked_bridge(our_pid: int | None) -> list[int]:
+    """Python processes connected to 5762 that are not in run\\bridge.pid."""
+    rows = netstat_rows() or []
+    pids = {
+        row_pid
+        for _local, foreign, state, row_pid in rows
+        if state == "ESTABLISHED" and foreign.endswith(":5762") and row_pid != our_pid
+    }
+    return sorted(
+        pid for pid in pids if process_name(pid).lower().startswith("python")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -510,6 +585,15 @@ def start_sitl(wait: bool = True) -> int:
         err(f"SITL not found: {sitl}")
         return 1
 
+    strays = untracked_sitl(None)
+    if strays:
+        err(
+            "another inav_SITL.exe is already running: "
+            + ", ".join(f"pid {pid}" for pid in strays)
+            + " (not in run\\sitl.pid; stop it first)"
+        )
+        return 1
+
     busy = [port for port in PORTS if port_open(port)]
     if busy:
         err(
@@ -541,6 +625,15 @@ def start_bridge(wait: bool = True) -> int:
     running, _ = component_running("bridge")
     if running:
         return 0
+
+    strays = untracked_bridge(None)
+    if strays:
+        err(
+            "another bridge is already connected to 5762: "
+            + ", ".join(f"pid {pid}" for pid in strays)
+            + " (not in run\\bridge.pid; stop it first)"
+        )
+        return 1
 
     sitl_running, _ = component_running("sitl")
     if not sitl_running:
@@ -888,6 +981,8 @@ def status_data() -> dict:
     }
     xp = xplane_info()
     sitl = find_sitl()
+    stray_sitl = untracked_sitl(sitl_pid if sitl_running else None)
+    stray_bridge = untracked_bridge(bridge_pid if bridge_running else None)
     return {
         "platform": "windows",
         "sitl": {
@@ -901,6 +996,14 @@ def status_data() -> dict:
             "pid": bridge_pid,
             "target": "127.0.0.1:5762",
             "connected": connected,
+        },
+        "stray": {
+            "sitl": [
+                {"pid": pid, "name": process_name(pid) or "?"} for pid in stray_sitl
+            ],
+            "bridge": [
+                {"pid": pid, "name": process_name(pid) or "?"} for pid in stray_bridge
+            ],
         },
         "eeprom": eeprom,
         "config": str(HID_CONFIG),
@@ -946,6 +1049,17 @@ def cmd_status(as_json: bool) -> int:
         print(f"config  {display_path(HID_CONFIG)}")
         print(f"xplane  {_xplane_label(data['xplane'])}  (external, not managed)")
         print(f"hitl    {_hitl_label(data['hitl'])}  (X-Plane plugin)")
+
+        for item in data["stray"]["sitl"]:
+            print(
+                f"stray   pid {item['pid']}  {item['name']}  "
+                "(inav_SITL not managed by this hidctl)"
+            )
+        for item in data["stray"]["bridge"]:
+            print(
+                f"stray   pid {item['pid']}  {item['name']}  "
+                "(connected to 5762, not managed by this hidctl)"
+            )
 
     ok = (
         data["sitl"]["running"]

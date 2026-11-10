@@ -345,6 +345,31 @@ macOS 分支用 `start_new_session=True`（setsid）脱离终端；Windows 分�
 如果以后还看到 SITL 消失，先看 `logs\sitl.log` 有没有 `stop sitl` 头：
 有就是 hidctl 停的，没有就是外部原因（控制台关闭、被任务管理器结束、崩溃）。
 
+### 6.2 多终端与重复进程
+
+`run\*.pid`、`logs\` 都在仓库目录里，同一份仓库的多个终端共享：
+
+- **终端 A 的 `hidctl status` 能看到终端 B 用 `hidctl` 起的 SITL/bridge**，
+  因为读的是同一份 PID 文件；
+- `start` 是幂等的，已经在运行就直接返回；
+- 启动 SITL 前会检查 **任何 `inav_SITL.exe` 进程**（不只看端口），
+  启动 bridge 前会检查 **5762 上已连接的 Python 客户端**，
+  所以就算 PID 文件丢了也不会重复起第二份；
+- 不由 `hidctl` 启动的进程（手工运行、另一个仓库副本、Configurator 拉起的 SITL）
+  会在 `status` 里显示为 `stray`：
+
+  ```text
+  stray   pid 2212  inav_SITL.exe  (inav_SITL not managed by this hidctl)
+  stray   pid 4820  python3.12.exe (connected to 5762, not managed by this hidctl)
+  ```
+
+  此时 `start` 会拒绝启动并提示先停掉这些进程。
+
+PID 文件现在记录 **PID + 进程创建时间**（`run\sitl.pid` 两行）；PID 被系统复用时
+创建时间对不上，`status`/`stop` 不会把无关进程当成 SITL/bridge，避免误杀。
+
+清理 `stray` 进程：在任务管理器里结束，或 `taskkill /PID <pid> /T /F`。
+
 ---
 
 ## 7. 与 main（macOS）分支的差异
