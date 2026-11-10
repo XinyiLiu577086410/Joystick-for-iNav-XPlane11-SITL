@@ -401,7 +401,6 @@ def cmd_start(component: str, verbose: bool = True, follow: bool = False) -> int
             text = read_new_log(name, offsets[name]).strip()
             print(f"--- {name} startup log ---")
             print(text if text else "(no new output)")
-        print(f"logs: {LOGS / 'sitl.log'}  {LOGS / 'bridge.log'}")
         cmd_status(False)
     if follow:
         cmd_logs(component, True, 20)
