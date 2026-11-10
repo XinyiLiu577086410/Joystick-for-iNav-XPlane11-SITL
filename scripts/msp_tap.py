@@ -99,14 +99,10 @@ def main() -> int:
     print(f"tap listening on {args.listen_port}, forwarding to {args.target_port}", flush=True)
     log.write(f"{stamp()} tap start {args.listen_port} -> {args.target_port}\n")
 
-    client, address = server.accept()
-    print(f"plugin connected from {address}", flush=True)
-    upstream = socket.create_connection((args.target_host, args.target_port), timeout=5)
+    client = None
+    upstream = None
 
-    lock = threading.Lock()
-    done = threading.Event()
-
-    def pump(source: socket.socket, sink: socket.socket, direction: str) -> None:
+    def pump(source: socket.socket, sink: socket.socket, direction: str, done, lock) -> None:
         buffer = b""
         try:
             while True:
@@ -128,22 +124,42 @@ def main() -> int:
             done.set()
             log.write(f"{stamp()} {direction} closed\n")
 
-    threading.Thread(target=pump, args=(client, upstream, "C>S"), daemon=True).start()
-    threading.Thread(target=pump, args=(upstream, client, "S>C"), daemon=True).start()
+    try:
+        while True:
+            client, address = server.accept()
+            print(f"plugin connected from {address}", flush=True)
+            log.write(f"{stamp()} plugin connected from {address}\n")
+            try:
+                upstream = socket.create_connection(
+                    (args.target_host, args.target_port), timeout=5
+                )
+            except OSError as exc:
+                log.write(f"{stamp()} target connect failed: {exc}\n")
+                client.close()
+                continue
 
-    done.wait()
-    try:
-        client.close()
-    except OSError:
+            lock = threading.Lock()
+            done = threading.Event()
+            threading.Thread(
+                target=pump, args=(client, upstream, "C>S", done, lock), daemon=True
+            ).start()
+            threading.Thread(
+                target=pump, args=(upstream, client, "S>C", done, lock), daemon=True
+            ).start()
+            done.wait()
+            for sock in (client, upstream):
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+            log.write(f"{stamp()} waiting for next connection\n")
+    except KeyboardInterrupt:
         pass
-    try:
-        upstream.close()
-    except OSError:
-        pass
-    server.close()
-    log.write(f"{stamp()} tap stop\n")
-    log.close()
-    print("tap stopped", flush=True)
+    finally:
+        server.close()
+        log.write(f"{stamp()} tap stop\n")
+        log.close()
+        print("tap stopped", flush=True)
     return 0
 
 
