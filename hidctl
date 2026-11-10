@@ -31,12 +31,43 @@ BACKUPS = RUNTIME / "backups"
 EEPROM = RUNTIME / "plane.bin"
 HID_CONFIG = CONFIG / "hid2msp_inav.json"
 BRIDGE = ROOT / "scripts" / "hid2msp.py"
-SITL = Path(
-    os.environ.get(
-        "HIDCTL_SITL",
-        "/Applications/INAV Configurator 9.0.0.app/Contents/Resources/sitl/macos/inav_SITL",
-    )
-)
+def find_sitl() -> Path | None:
+    override = os.environ.get("HIDCTL_SITL")
+    if override:
+        path = Path(override).expanduser()
+        return path if path.is_file() else None
+
+    candidates: list[Path] = []
+    for base in (Path("/Applications"), Path.home() / "Applications"):
+        try:
+            candidates.extend(
+                base.glob("INAV Configurator*.app/Contents/Resources/sitl/macos/inav_SITL")
+            )
+        except OSError:
+            pass
+
+    local = ROOT / "3rdparty/inav-configurator/resources/public/sitl/macos/inav_SITL"
+    if local.is_file():
+        candidates.append(local)
+
+    found = [path for path in candidates if path.is_file()]
+
+    def version_key(path: Path) -> tuple:
+        app = path
+        for _ in range(5):
+            app = app.parent
+        match = re.search(r"(\d+(?:\.\d+)*)", app.name)
+        version = tuple(int(part) for part in match.group(1).split(".")) if match else ()
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+        return version, mtime
+
+    return max(found, key=version_key) if found else None
+
+
+SITL = find_sitl()
 
 PORTS = (5760, 5761, 5762, 5763)
 COMPONENTS = ("sitl", "bridge")
@@ -294,8 +325,8 @@ def start_sitl(wait: bool = True) -> int:
     running, pid = component_running("sitl")
     if running:
         return 0
-    if not SITL.is_file() or not os.access(SITL, os.X_OK):
-        err(f"SITL not found or not executable: {SITL}")
+    if SITL is None or not SITL.is_file() or not os.access(SITL, os.X_OK):
+        err("SITL not found; install INAV Configurator or set HIDCTL_SITL")
         return 1
 
     busy = [port for port in PORTS if port_open(port)]
@@ -444,7 +475,7 @@ def _xplane_app_from_path(path: Path) -> Path | None:
     try:
         if path.name.endswith(".app"):
             return path if (path / "Contents" / "Info.plist").is_file() else None
-        for name in ("X-Plane.app", "X-Plane 12.app", "X-Plane 11.app"):
+        for name in ("X-Plane.app", "X-Plane 11.app"):
             app = path / name
             if (app / "Contents" / "Info.plist").is_file():
                 return app
@@ -472,11 +503,8 @@ def _xplane_candidates() -> list[Path]:
         os.environ.get("XPLANE_PATH"),
         os.environ.get("XPLANE_APP"),
         str(home / "Library/Application Support/Steam/steamapps/common/X-Plane 11"),
-        str(home / "Library/Application Support/Steam/steamapps/common/X-Plane 12"),
         str(home / "Applications/X-Plane 11.app"),
-        str(home / "Applications/X-Plane 12.app"),
         "/Applications/X-Plane 11.app",
-        "/Applications/X-Plane 12.app",
     ]
     result: list[Path] = []
     seen: set[str] = set()
@@ -1051,7 +1079,7 @@ def cmd_config_check() -> int:
 
 def cmd_config_show() -> int:
     print(f"root        {display_path(ROOT)}")
-    print(f"sitl        {display_path(SITL)}")
+    print(f"sitl        {display_path(SITL) if SITL else 'not found'}")
     print(f"eeprom      {display_path(EEPROM)}")
     print(f"hid config  {display_path(HID_CONFIG)}")
     print(f"backups     {display_path(BACKUPS)}")
@@ -1066,7 +1094,7 @@ def cmd_config_show() -> int:
 def cmd_doctor() -> int:
     checks: list[tuple[str, bool, str]] = []
 
-    checks.append(("SITL binary", SITL.is_file() and os.access(SITL, os.X_OK), str(SITL)))
+    checks.append(("SITL binary", SITL is not None and SITL.is_file() and os.access(SITL, os.X_OK), str(SITL) if SITL else "not found"))
     xp = xplane_info()
     checks.append(
         (

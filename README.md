@@ -44,10 +44,10 @@ X-Plane 不由 `hidctl` 管理；它只负责 SITL 和手柄桥。
 
 | 组件 | 版本/位置 | 作用 | 是否必须 |
 |---|---|---|---|
-| **macOS** | 13+，本项目在 26.3.1 验证 | 宿主系统 | 是 |
-| **X-Plane 11** | 11.55r2，Steam 版 | 飞机物理、渲染、HITL 插件宿主 | 是 |
-| **INAV Configurator** | 9.0.0 | 配置 SITL；自带 macOS SITL 二进制 | 是 |
-| **INAV SITL** | 9.0.0，Configurator 内置 | 运行飞控逻辑 | 是 |
+| **macOS** | 13+ Apple Silicon（本分支不支持 Intel Mac） | 宿主系统 | 是 |
+| **X-Plane 11** | 11.55r2（Steam/独立） | 飞机物理、渲染、HITL 插件宿主 | 是 |
+| **INAV Configurator** | 任意 9.x（自动探测） | 配置 SITL；自带 macOS SITL 二进制 | 是 |
+| **INAV SITL** | Configurator 内置 | 运行飞控逻辑 | 是 |
 | **INAV HITL 插件 + INAV Surfwing** | `3rdparty/INAV-X-Plane-HITL/release/` | 把 X-Plane 传感器/控制/OSD 接到 SITL | 是 |
 | **Python 3** | 3.10+ | 运行 `hid2msp.py` 和标定脚本 | 是 |
 | **pygame** | 2.x | 读取 HID 手柄/遥控器；键盘模式不需要 | HID 时是 |
@@ -110,7 +110,7 @@ X-Plane 不由 `hidctl` 管理；它只负责 SITL 和手柄桥。
 > git clone https://github.com/iNavFlight/inav-configurator.git     # 仅源码参考，可选
 > ```
 >
-> 运行时真正需要的是 **`3rdparty/INAV-X-Plane-HITL` 的 `release/`** 和 **INAV Configurator 9.0.0 应用**。
+> 运行时真正需要的是 **`3rdparty/INAV-X-Plane-HITL` 的 `release/`** 和 **INAV Configurator 应用**。
 
 ### 2.1 配置文件分类
 
@@ -191,23 +191,30 @@ New Flight → Select Aircraft → Show extra aircraft from old versions
 
 > `Show extra aircraft from old versions` 在 **Select Aircraft 窗口底部**，不在 `Settings → General`。
 
-### 3.2 INAV Configurator 9.0.0
+### 3.2 INAV Configurator（9.x）
 
-安装 macOS 版 INAV Configurator 9.0.0。它自带 SITL：
+安装 macOS 版 INAV Configurator 9.x。它自带 SITL，`hidctl` 会自动探测：
 
 ```text
-/Applications/INAV Configurator 9.0.0.app/Contents/Resources/sitl/macos/inav_SITL
+/Applications/INAV Configurator*.app/Contents/Resources/sitl/macos/inav_SITL
+~/Applications/INAV Configurator*.app/Contents/Resources/sitl/macos/inav_SITL
+```
+
+也可以手动指定：
+
+```bash
+HIDCTL_SITL="/Applications/INAV Configurator 9.0.0.app/Contents/Resources/sitl/macos/inav_SITL" \
+  ./hidctl start
 ```
 
 确认：
 
 ```bash
-"/Applications/INAV Configurator 9.0.0.app/Contents/Resources/sitl/macos/inav_SITL" --help
+./hidctl config show
+./hidctl doctor
 ```
 
-应显示 `INAV 9.0.0 SITL`。
-
-> 不要修改 `/Applications/INAV Configurator 9.0.0.app` 内的文件；本项目只调用它自带的 SITL。
+> 不要修改 INAV Configurator.app 内的文件；本项目只调用它自带的 SITL。
 
 ### 3.3 Python 和 pygame
 
@@ -1015,7 +1022,8 @@ config/INAV_SITL_MINIMAL_NODEFAULTS.txt
 - 当前 HID 适配器把原 SWA 只编码成 `button0` 的 0/1，无法得到三档；所以改用 **axis3 旋钮** 做 6 档模式。
 - 键盘模式是全局读取按键，不拦截事件；X-Plane 仍可能收到同名按键，避免在 X-Plane 里绑定 WASD/空格/数字键。
 - HITL 插件 v1.5.0 主要面向 INAV 7/8；INAV 9.0 联调时如遇协议差异，需要降级或改插件。
-- X-Plane 11 在 Apple Silicon 上通过 Rosetta 运行；X-Plane 12 原生 arm64 需要 arm64/universal 插件。
+- 当前分支只支持 X-Plane 11；X-Plane 12 不在本分支范围（需要单独的插件/架构适配）。
+- X-Plane 11 是 x86_64，在 Apple Silicon 上通过 Rosetta 运行。
 - 本配置仅用于 SITL，**不要刷入真实飞机**。
 
 ---

@@ -1,5 +1,7 @@
 # macOS 上 X-Plane 11 + INAV SITL + HID 手柄当 Receiver：调研与实施方案
 
+> 当前维护分支范围：**macOS 13+ Apple Silicon、X-Plane 11 only、Configurator 9.x 自动探测**。文中 X-Plane 12 / Intel / 其它版本的内容属于历史调研，不代表当前分支承诺。
+
 > 当前实际使用的安装、启动、通道映射和 Configurator 配置见 [README.md](../README.md)；本文是方案调研与历史设计记录。
 
 > 适用环境：macOS（Intel / Apple Silicon）、X-Plane 11.55、INAV Configurator 9.x、INAV SITL 9.0.0  

@@ -50,7 +50,7 @@ def architecture():
     box(ax, 3.2, 3.8, 2.8, 1.8, "hid2msp.py", "pygame + MSP v1\n16 RC channels", fc=LIGHT2, ec=GREEN)
 
     # SITL
-    box(ax, 7.2, 2.1, 4.2, 4.7, "INAV SITL 9.0.0", "flight-controller logic\nreceiver → mixer → PID", fc="#e8f0fb", ec=NAVY, title_size=13)
+    box(ax, 7.2, 2.1, 4.2, 4.7, "INAV SITL", "flight-controller logic\nreceiver → mixer → PID", fc="#e8f0fb", ec=NAVY, title_size=13)
     ax.plot([7.45, 11.15], [5.78, 5.78], color="#b8c4d4", lw=1.0)
     ax.text(7.45, 5.48, "UART1  :5760   Configurator", fontsize=9.4, color=NAVY, va="top", family="monospace")
     ax.text(7.45, 5.10, "UART2  :5761   HITL plugin", fontsize=9.4, color=NAVY, va="top", family="monospace")
@@ -64,7 +64,7 @@ def architecture():
     box(ax, 12.0, 1.1, 3.4, 0.95, "OSD display port", "MSP DisplayPort (UART4)\nSITL-side OSD canvas", fc="#f3f0fa", ec="#6a4c93")
 
     # top
-    box(ax, 7.2, 7.35, 4.2, 0.8, "INAV Configurator 9.0.0", "setup / CLI / receiver / mixer", fc=LIGHT2, ec=GREEN, title_size=12, sub_size=8.6)
+    box(ax, 7.2, 7.35, 4.2, 0.8, "INAV Configurator", "setup / CLI / receiver / mixer", fc=LIGHT2, ec=GREEN, title_size=12, sub_size=8.6)
 
     # arrows
     ax.annotate("", xy=(3.2, 4.7), xytext=(2.9, 4.7),

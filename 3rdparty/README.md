@@ -20,6 +20,6 @@ git clone https://github.com/iNavFlight/inav-configurator.git
 运行时真正需要的是：
 
 - `3rdparty/INAV-X-Plane-HITL/release/Aircraft/Extra Aircraft/NK_FPVSurfwing`
-- 已安装的 **INAV Configurator 9.0.0**（提供 SITL 可执行文件）
+- 已安装的 **INAV Configurator 9.x**（`hidctl` 自动探测 SITL 可执行文件）
 
 `inav/` 和 `inav-configurator/` 只是源码参考，不参与运行。
