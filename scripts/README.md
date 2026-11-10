@@ -6,6 +6,7 @@
 |---|---|
 | `hid2msp.py` | HID 手柄/遥控器或键盘 → MSP `SET_RAW_RC` 桥 |
 | `keyboard_input.py` | macOS 全局键盘读取、键位映射、键盘通道生成 |
+| `keymap_wizard.py` | `./hidctl keys` 的交互式键位向导 |
 | `calibrate_hid.py` | 交互式标定 AETR 轴，结果写入 `config/calibration.json` |
 
 ## 常用命令（在仓库根目录执行）
@@ -15,6 +16,7 @@
 ./hidctl status
 ./hidctl logs sitl -f
 ./hidctl doctor
+./hidctl keys
 python3 scripts/hid2msp.py --keys
 ./hidctl stop
 

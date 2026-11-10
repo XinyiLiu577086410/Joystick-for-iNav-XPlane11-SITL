@@ -23,6 +23,9 @@ cd "$HOME/Desktop/Read-the-Source-Code/hid-as-rx"
 
 # 看状态
 ./hidctl status
+
+# 可选：引导式配置键位
+./hidctl keys
 ```
 
 然后：
@@ -140,6 +143,7 @@ X-Plane 不由 `hidctl` 管理；它只负责 SITL 和手柄桥。
 | [SOLUTION.md](docs/SOLUTION.md) | 更完整的调研、方案 A/B/C/D、HITL 适配评估 |
 | [hid2msp.py](scripts/hid2msp.py) | HID/键盘 → MSP 接收机桥 |
 | [keyboard_input.py](scripts/keyboard_input.py) | macOS 键盘输入、键位映射、键盘通道生成 |
+| [keymap_wizard.py](scripts/keymap_wizard.py) | `./hidctl keys` 的交互式键位向导 |
 | [hid2msp_inav.json](config/hid2msp_inav.json) | **当前实际使用**的手柄/遥控器映射 |
 | [hid2msp.example.json](config/hid2msp.example.json) | 通用 Xbox 风格示例 |
 | [calibrate_hid.py](scripts/calibrate_hid.py) | 交互式摇杆标定脚本 |
@@ -351,6 +355,41 @@ HID 手柄拔掉时，`keyboard.source = auto` 会自动改用键盘，不需要
 | `keyboard` | 强制键盘，即使手柄已连接 |
 
 ### 4.4 如何配置 keyboard map
+
+#### 引导式配置（推荐）
+
+```bash
+./hidctl keys
+```
+
+向导会逐个询问：
+
+```text
+Roll 左 [roll_left] 当前 a ...
+```
+
+- 直接按目标键；
+- `Enter` 保留当前键；
+- `Esc` 跳过；
+- 20 秒不按则保留当前；
+- 同一个键已被别的动作使用会拒绝；
+- 最后确认保存，自动备份、跑 `config check`，并询问是否重启 bridge。
+
+如果 Input Monitoring 还没授权，向导无法读物理键，可以手动输入键名：
+
+```bash
+./hidctl keys --manual
+```
+
+也可以保存后立即重启 bridge：
+
+```bash
+./hidctl keys --apply
+```
+
+向导只改 `keyboard.keys`，不会动 HID 轴/按键映射，也不会动 SITL 参数。
+
+#### 手动改 JSON
 
 键位在 `config/hid2msp_inav.json` 的 `keyboard.keys` 里，格式是：
 

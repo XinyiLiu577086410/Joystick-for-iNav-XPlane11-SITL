@@ -8,6 +8,8 @@
 /logs/
 /config/runtime/
 /config/calibration.json
+/config/*.bak
+/config/*.bak-*
 __pycache__/
 *.pyc
 *.log

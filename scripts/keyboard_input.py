@@ -112,6 +112,45 @@ _KEYCODES: Dict[str, int] = {
     "capslock": 57,
 }
 
+_PREFERRED_NAMES = [
+    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
+    "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
+    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+    "space", "return", "tab", "escape", "delete", "`", "-", "=", "[", "]",
+    "\\", ";", "'", ",", ".", "/",
+    "left_shift", "right_shift", "left_control", "right_control",
+    "left_option", "right_option", "left_command", "right_command", "fn",
+]
+
+CANONICAL_NAMES: Dict[int, str] = {}
+for _name in _PREFERRED_NAMES:
+    if _name in _KEYCODES:
+        CANONICAL_NAMES.setdefault(_KEYCODES[_name], _name)
+
+
+def key_name_for_code(code: int) -> str | None:
+    return CANONICAL_NAMES.get(code)
+
+
+def read_pressed_keycodes() -> set[int]:
+    """Return all currently pressed keycodes known to this module."""
+    lib = load_quartz()
+    pressed: set[int] = set()
+    for code in set(_KEYCODES.values()):
+        try:
+            if lib.CGEventSourceKeyState(1, code):
+                pressed.add(code)
+        except Exception:
+            pass
+    try:
+        flags = int(lib.CGEventSourceFlagsState(1))
+        if flags & FN_FLAG:
+            pressed.add(63)
+    except Exception:
+        pass
+    return pressed
+
+
 DEFAULT_KEYS: Dict[str, str] = {
     "roll_left": "a",
     "roll_right": "d",

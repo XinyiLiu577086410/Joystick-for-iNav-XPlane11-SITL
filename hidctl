@@ -1077,6 +1077,15 @@ def cmd_config_check() -> int:
     return 0
 
 
+def cmd_keys(manual: bool = False, apply: bool = False) -> int:
+    cmd = [sys.executable, str(ROOT / "scripts/keymap_wizard.py")]
+    if manual:
+        cmd.append("--manual")
+    if apply:
+        cmd.append("--apply")
+    return subprocess.run(cmd).returncode
+
+
 def cmd_config_show() -> int:
     print(f"root        {display_path(ROOT)}")
     print(f"sitl        {display_path(SITL) if SITL else 'not found'}")
@@ -1293,6 +1302,10 @@ def build_parser() -> argparse.ArgumentParser:
     ep.add_argument("--yes", action="store_true")
     ep.add_argument("--no-backup", action="store_true")
 
+    keys = sub.add_parser("keys")
+    keys.add_argument("--manual", action="store_true", help="type key names instead of pressing keys")
+    keys.add_argument("--apply", action="store_true", help="restart bridge after saving")
+
     config = sub.add_parser("config")
     config_sub = config.add_subparsers(dest="config_command", required=True)
     config_sub.add_parser("check")
@@ -1329,6 +1342,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_restore(args.file, args.yes, args.no_start, args.no_backup)
         if command == "reset":
             return cmd_reset(args.no_backup, args.yes)
+        if command == "keys":
+            return cmd_keys(manual=args.manual, apply=args.apply)
         if command == "config":
             return cmd_config_check() if args.config_command == "check" else cmd_config_show()
         if command == "doctor":
