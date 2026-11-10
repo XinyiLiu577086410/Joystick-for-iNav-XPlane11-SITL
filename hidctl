@@ -357,7 +357,7 @@ def stop_all() -> int:
     return 0
 
 
-def cmd_start(component: str, verbose: bool = False) -> int:
+def cmd_start(component: str, verbose: bool = True) -> int:
     if component == "sitl":
         rc = start_sitl()
     elif component == "bridge":
@@ -945,8 +945,17 @@ def build_parser() -> argparse.ArgumentParser:
             sp.add_argument(
                 "-v",
                 "--verbose",
+                dest="verbose",
                 action="store_true",
-                help="print resulting status and log paths",
+                default=True,
+                help="print resulting status and log paths (default)",
+            )
+            sp.add_argument(
+                "-q",
+                "--quiet",
+                dest="verbose",
+                action="store_false",
+                help="suppress startup status output",
             )
 
     sp = sub.add_parser("status")
