@@ -186,6 +186,19 @@ def accessibility_trusted() -> bool | None:
     return None
 
 
+def input_monitoring_trusted() -> bool | None:
+    """True if this process may monitor keyboard input (Input Monitoring)."""
+    try:
+        lib = load_quartz()
+        if hasattr(lib, "CGPreflightListenEventAccess"):
+            lib.CGPreflightListenEventAccess.argtypes = []
+            lib.CGPreflightListenEventAccess.restype = ctypes.c_bool
+            return bool(lib.CGPreflightListenEventAccess())
+    except Exception:
+        return None
+    return None
+
+
 def _approach(current: float, target: float, rate: float, dt: float) -> float:
     step = max(0.0, rate) * dt
     if current < target:
@@ -221,12 +234,13 @@ class KeyboardInput:
         self.mode = 0
         self.previous: Dict[str, bool] = {name: False for name in self.keycodes}
         self.last = time.monotonic()
-        self.trusted = accessibility_trusted()
-        if self.trusted is False:
+        self.input_monitoring = input_monitoring_trusted()
+        self.trusted = self.input_monitoring
+        if self.input_monitoring is not True:
             print(
-                "keyboard: Accessibility/Input Monitoring is not granted; "
-                "keys may not be visible. Grant it to Terminal/Python in "
-                "System Settings -> Privacy & Security.",
+                "keyboard: Input Monitoring is not granted to this Python process; "
+                "keys may not be visible. Grant Input Monitoring to Python/Terminal "
+                "(not only the hidctl script), then restart the bridge.",
                 file=sys.stderr,
             )
 

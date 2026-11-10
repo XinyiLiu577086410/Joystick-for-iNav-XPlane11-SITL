@@ -347,7 +347,21 @@ HID 手柄拔掉时，`keyboard.source = auto` 会自动改用键盘，不需要
 系统设置 → 隐私与安全性 → 输入监控
 ```
 
-给运行 `hid2msp.py` 的程序授权（通常是 **Terminal / iTerm / Python**）。
+TCC 是按**真正读取键盘的进程**算的，不是按脚本名算的。通过 `./hidctl start` 后台运行时，实际进程是 **Python**，不是 `hidctl` 脚本本身；只把 `hidctl` 加进输入监控可能不够。
+
+建议同时添加：
+
+```text
+/Library/Frameworks/Python.framework/Versions/3.10/Resources/Python.app
+```
+
+以及启动它的程序：
+
+- 从 Terminal/iTerm 运行：添加 **Terminal / iTerm**
+- 从 DeepSeek Harness 运行：添加 **DeepSeek Harness**
+- 如果列表里已经有 `hidctl`，可以保留，但不要只依赖它
+
+添加/切换权限后要**重启 bridge**；必要时重启 Terminal 或 DeepSeek Harness。
 
 检查：
 

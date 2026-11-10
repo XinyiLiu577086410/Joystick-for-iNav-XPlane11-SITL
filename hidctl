@@ -45,7 +45,7 @@ KINDS = {"bipolar", "unipolar", "tri", "binary", "multi"}
 sys.path.insert(0, str(ROOT / "scripts"))
 from keyboard_input import (  # noqa: E402
     DEFAULT_KEYS,
-    accessibility_trusted,
+    input_monitoring_trusted,
     resolve_keycode,
 )
 
@@ -843,12 +843,15 @@ def cmd_doctor() -> int:
         keyboard_source == "keyboard" or (keyboard_source == "auto" and count == 0)
     )
     if keyboard_required:
-        trusted = accessibility_trusted()
+        trusted = input_monitoring_trusted()
         checks.append(
             (
-                "keyboard access",
+                "keyboard input",
                 trusted is True,
-                "grant Accessibility/Input Monitoring to Terminal/Python"
+                (
+                    f"grant Input Monitoring to Python ({sys.executable}) "
+                    "and Terminal/DeepSeek Harness, then restart bridge"
+                )
                 if trusted is not True
                 else "trusted",
             )
