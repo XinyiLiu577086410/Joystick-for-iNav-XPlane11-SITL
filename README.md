@@ -167,7 +167,14 @@ X-Plane 不由 `hidctl` 管理；它只负责 SITL 和手柄桥。
 ~/Library/Application Support/Steam/steamapps/common/X-Plane 11
 ```
 
-3. 复制 INAV Surfwing 飞机和插件：
+3. X-Plane 不在标准位置时，用环境变量告诉 `hidctl`：
+   ```bash
+   XPLANE_PATH="/path/to/X-Plane 11" ./hidctl status
+   XPLANE_APP="/path/to/X-Plane 11.app" ./hidctl status
+   ```
+   `hidctl` 只做探测，不启动/停止 X-Plane。
+
+4. 复制 INAV Surfwing 飞机和插件：
 
 ```bash
 XP="$HOME/Library/Application Support/Steam/steamapps/common/X-Plane 11"
@@ -175,14 +182,14 @@ cp -R "3rdparty/INAV-X-Plane-HITL/release/Aircraft/Extra Aircraft/NK_FPVSurfwing
       "$XP/Aircraft/Extra Aircraft/"
 ```
 
-4. 去掉 quarantine：
+5. 去掉 quarantine：
 
 ```bash
 xattr -rd com.apple.quarantine \
   "$XP/Aircraft/Extra Aircraft/NK_FPVSurfwing"
 ```
 
-5. 启动 X-Plane，进入：
+6. 启动 X-Plane，进入：
 
 ```text
 New Flight → Select Aircraft → Show extra aircraft from old versions
