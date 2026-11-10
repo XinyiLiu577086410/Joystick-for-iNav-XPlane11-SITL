@@ -15,8 +15,14 @@ Run:
     python3 hid2msp.py --port 5762
     python3 hid2msp.py --port 5762 --test
     python3 hid2msp.py --port 5762 --once
+    python3 hid2msp.py --keys
 
-Only dependency: pygame (for real gamepad mode).  --test/--once need no pygame.
+Input is selected by config/keyboard.source:
+  auto      = gamepad if present, otherwise keyboard
+  hid       = force gamepad
+  keyboard  = force keyboard
+
+pygame is only needed for gamepad mode; keyboard mode uses CoreGraphics.
 """
 
 from __future__ import annotations
@@ -31,6 +37,13 @@ import sys
 import time
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
+
+from keyboard_input import (
+    DEFAULT_KEYS,
+    KeyboardConfig,
+    KeyboardInput,
+    monitor_keyboard,
+)
 
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 
@@ -152,6 +165,7 @@ class Config:
     buttons3: List[Button3Map] = field(default_factory=list)
     combine: List[CombineMap] = field(default_factory=list)
     constants: Dict[int, int] = field(default_factory=dict)
+    keyboard: KeyboardConfig = field(default_factory=KeyboardConfig)
 
 
 def default_config() -> Config:
@@ -192,6 +206,25 @@ def load_config(path: Optional[str]) -> Config:
         cfg.combine = [CombineMap(**item) for item in data["combine"]]
     if "constants" in data:
         cfg.constants = {int(k): int(v) for k, v in data["constants"].items()}
+    if "keyboard" in data:
+        raw = data.get("keyboard") or {}
+        if not isinstance(raw, dict):
+            raise ValueError("keyboard must be an object")
+        source = str(raw.get("source", "auto")).lower()
+        if source not in ("auto", "hid", "keyboard"):
+            raise ValueError("keyboard.source must be auto, hid, or keyboard")
+        keys = dict(DEFAULT_KEYS)
+        raw_keys = raw.get("keys") or {}
+        if not isinstance(raw_keys, dict):
+            raise ValueError("keyboard.keys must be an object")
+        keys.update({str(k): str(v) for k, v in raw_keys.items()})
+        cfg.keyboard = KeyboardConfig(
+            enabled=bool(raw.get("enabled", True)),
+            source=source,
+            axis_rate=float(raw.get("axis_rate", 600.0)),
+            throttle_rate=float(raw.get("throttle_rate", 600.0)),
+            keys=keys,
+        )
     return cfg
 
 
@@ -372,12 +405,40 @@ def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
         return 2
 
     gamepad: Optional[Gamepad] = None
+    keyboard: Optional[KeyboardInput] = None
     if not test:
-        try:
-            gamepad = Gamepad()
-            print(f"gamepad: {gamepad.name}  axes={gamepad.num_axes} buttons={gamepad.num_buttons}")
-        except Exception as exc:
-            print(f"gamepad error: {exc}", file=sys.stderr)
+        source = cfg.keyboard.source if cfg.keyboard.enabled else "hid"
+        if source == "auto":
+            try:
+                gamepad = Gamepad()
+                print(f"gamepad: {gamepad.name}  axes={gamepad.num_axes} buttons={gamepad.num_buttons}")
+            except Exception as gamepad_error:
+                try:
+                    keyboard = KeyboardInput(cfg.keyboard)
+                    print("keyboard: enabled (no gamepad detected)")
+                except Exception as keyboard_error:
+                    print(f"gamepad error: {gamepad_error}", file=sys.stderr)
+                    print(f"keyboard error: {keyboard_error}", file=sys.stderr)
+                    link.close()
+                    return 2
+        elif source == "keyboard":
+            try:
+                keyboard = KeyboardInput(cfg.keyboard)
+                print("keyboard: enabled")
+            except Exception as exc:
+                print(f"keyboard error: {exc}", file=sys.stderr)
+                link.close()
+                return 2
+        elif source == "hid":
+            try:
+                gamepad = Gamepad()
+                print(f"gamepad: {gamepad.name}  axes={gamepad.num_axes} buttons={gamepad.num_buttons}")
+            except Exception as exc:
+                print(f"gamepad error: {exc}", file=sys.stderr)
+                link.close()
+                return 2
+        else:
+            print(f"invalid keyboard source: {source}", file=sys.stderr)
             link.close()
             return 2
 
@@ -393,10 +454,14 @@ def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
             now = time.monotonic()
             if test:
                 channels = synthetic_channels(now - started)
-            else:
-                assert gamepad is not None
+            elif gamepad is not None:
                 axes, buttons = gamepad.poll()
                 channels = build_channels(cfg, axes, buttons, toggles, previous_buttons)
+            elif keyboard is not None:
+                channels = keyboard.poll()
+            else:
+                print("no input source active", file=sys.stderr)
+                return 2
 
             if not link.send_raw_rc(channels):
                 print(f"send failed: {link.last_error}; reconnecting...", file=sys.stderr)
@@ -424,6 +489,8 @@ def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
         link.close()
         if gamepad is not None:
             gamepad.close()
+        if keyboard is not None:
+            keyboard.close()
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -433,6 +500,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--config", help="JSON mapping file")
     parser.add_argument("--rate", type=float, default=None, help="RC frame rate in Hz (default 50)")
     parser.add_argument("--list", action="store_true", help="list gamepads and live axes/buttons")
+    parser.add_argument("--keys", action="store_true", help="list keyboard-derived channels (no gamepad)")
+    parser.add_argument("--source", choices=("auto", "hid", "keyboard"), default=None, help="override keyboard.source")
     parser.add_argument("--test", action="store_true", help="send synthetic channel sweeps (no gamepad)")
     parser.add_argument("--once", action="store_true", help="send one frame and exit")
     parser.add_argument("-v", "--verbose", action="store_true", help="print channels once per second")
@@ -441,13 +510,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if args.list:
         return list_gamepads()
 
-    cfg = load_config(args.config)
+    try:
+        cfg = load_config(args.config)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        print(f"config error: {exc}", file=sys.stderr)
+        return 2
     if args.host:
         cfg.host = args.host
     if args.port:
         cfg.port = args.port
     if args.rate:
         cfg.rate_hz = args.rate
+    if args.source:
+        cfg.keyboard.enabled = True
+        cfg.keyboard.source = args.source
+    if args.keys:
+        return monitor_keyboard(cfg.keyboard)
 
     return run(cfg, test=args.test, once=args.once, verbose=args.verbose)
 

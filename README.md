@@ -50,8 +50,8 @@ X-Plane 不由 `hidctl` 管理；它只负责 SITL 和手柄桥。
 | **INAV SITL** | 9.0.0，Configurator 内置 | 运行飞控逻辑 | 是 |
 | **INAV HITL 插件 + INAV Surfwing** | `3rdparty/INAV-X-Plane-HITL/release/` | 把 X-Plane 传感器/控制/OSD 接到 SITL | 是 |
 | **Python 3** | 3.10+ | 运行 `hid2msp.py` 和标定脚本 | 是 |
-| **pygame** | 2.x | 读取 HID 手柄/遥控器 | 是 |
-| **HID 手柄/遥控器** | USB HID | 提供 AETR、旋钮、开关 | 是 |
+| **pygame** | 2.x | 读取 HID 手柄/遥控器；键盘模式不需要 | HID 时是 |
+| **HID 手柄/遥控器** | USB HID | 提供 AETR、旋钮、开关 | 可选；没有时用键盘 |
 | **INAV Configurator 的 SITL 二进制** | `.../Contents/Resources/sitl/macos/inav_SITL` | 实际运行的 SITL | 是 |
 
 **不需要：**
@@ -138,7 +138,8 @@ X-Plane 不由 `hidctl` 管理；它只负责 SITL 和手柄桥。
 |---|---|
 | [README.md](README.md) | 本文件：安装、启动、配置、排错 |
 | [SOLUTION.md](docs/SOLUTION.md) | 更完整的调研、方案 A/B/C/D、HITL 适配评估 |
-| [hid2msp.py](scripts/hid2msp.py) | HID → MSP 接收机桥 |
+| [hid2msp.py](scripts/hid2msp.py) | HID/键盘 → MSP 接收机桥 |
+| [keyboard_input.py](scripts/keyboard_input.py) | macOS 键盘输入、键位映射、键盘通道生成 |
 | [hid2msp_inav.json](config/hid2msp_inav.json) | **当前实际使用**的手柄/遥控器映射 |
 | [hid2msp.example.json](config/hid2msp.example.json) | 通用 Xbox 风格示例 |
 | [calibrate_hid.py](scripts/calibrate_hid.py) | 交互式摇杆标定脚本 |
@@ -227,7 +228,9 @@ axes=[...] buttons=[...]
 系统设置 → 隐私与安全性 → 输入监控
 ```
 
-### 3.4 HID 设备
+### 3.4 HID 设备（可选）
+
+没有 HID 时直接用 [4.3 键盘控制](#43-键盘控制)，不需要额外安装键盘库。
 
 当前验证设备：
 
@@ -272,6 +275,98 @@ PengFei Model RC Simulator - XTR+G2+FMS Controller
 - **CH9 常高**：NAV LAUNCH 永久启用（`aux 7 36 4 1950 2050`）。
 
 > 安全提醒：NAV LAUNCH 永久启用意味着解锁后飞控会进入起飞模式。SITL 里没有物理危险，但真机配置绝对不要照搬；每次解锁前确认桨叶周围无人。
+
+### 4.3 键盘控制
+
+HID 手柄拔掉时，`keyboard.source = auto` 会自动改用键盘，不需要改启动命令。
+
+默认键位：
+
+| 键 | 功能 |
+|---|---|
+| `W` / `S` | Pitch 上 / 下 |
+| `A` / `D` | Roll 左 / 右 |
+| `Q` / `E` | Yaw 左 / 右 |
+| `1`–`6` | 六段模式：ANGLE / HORIZON / MANUAL / CRUISE / POSHOLD / RTH |
+| `Space` | 按一下切换解锁/上锁 |
+| `Left Shift` | 按住增加油门 |
+| `Left Fn` | 按住减少油门 |
+
+行为：
+
+- 初始油门 1000，CH7 上锁，CH8 为 ANGLE（1 档）。
+- 解锁时如果油门 > 1050，会拒绝解锁并在日志里提示；先降到低位。
+- `1`–`6` 是按下沿触发，不是按住。
+- 轴和油门都按 `axis_rate` / `throttle_rate`（PWM/秒）平滑变化，不会瞬间满舵。
+- 键盘模式不控制 CH6 NAV WP，CH6 固定 1000。
+
+配置在 `config/hid2msp_inav.json`：
+
+```json
+"keyboard": {
+  "enabled": true,
+  "source": "auto",
+  "axis_rate": 600,
+  "throttle_rate": 600,
+  "keys": {
+    "roll_left": "a",
+    "roll_right": "d",
+    "pitch_up": "w",
+    "pitch_down": "s",
+    "yaw_left": "q",
+    "yaw_right": "e",
+    "arm": "space",
+    "throttle_up": "left_shift",
+    "throttle_down": "fn",
+    "mode_1": "1",
+    "mode_2": "2",
+    "mode_3": "3",
+    "mode_4": "4",
+    "mode_5": "5",
+    "mode_6": "6"
+  }
+}
+```
+
+`source` 三种值：
+
+| 值 | 行为 |
+|---|---|
+| `auto` | 有 HID 用手柄，没有就用键盘 |
+| `hid` | 强制手柄；没有手柄则启动失败 |
+| `keyboard` | 强制键盘，即使手柄已连接 |
+
+键名使用 macOS 虚拟键名，例如 `a`、`1`、`space`、`left_shift`、`left_option`、`left_control`、`fn`。配置错误会被 `./hidctl config check` 报出来。
+
+#### macOS 权限
+
+键盘是全局读键状态，不依赖窗口焦点。需要在：
+
+```text
+系统设置 → 隐私与安全性 → 辅助功能
+系统设置 → 隐私与安全性 → 输入监控
+```
+
+给运行 `hid2msp.py` 的程序授权（通常是 **Terminal / iTerm / Python**）。
+
+检查：
+
+```bash
+./hidctl doctor
+python3 scripts/hid2msp.py --keys
+```
+
+`--keys` 会实时打印键盘通道，不需要 SITL，适合先确认键位。
+
+#### Fn 键说明
+
+macOS 的 `Fn` 有时不会产生普通 keycode；代码会额外检查 `kCGEventFlagMaskSecondaryFn`。如果仍然检测不到，把配置改成更可靠的键：
+
+```json
+"throttle_down": "left_option"
+```
+
+或 `"left_control"`，然后 `./hidctl restart bridge`。
 
 ---
 
@@ -320,6 +415,7 @@ PengFei Model RC Simulator - XTR+G2+FMS Controller
 | `buttons[].low` / `high` | 松开/按下（或开关低/高）的 PWM |
 | `buttons[].toggle` | `true` 为按一下切换，`false` 为跟随开关状态 |
 | `constants` | 固定通道值；CH9=2000 就是 NAV LAUNCH |
+| `keyboard` | 键盘控制：`enabled`、`source`（auto/hid/keyboard）、`axis_rate`、`throttle_rate`、`keys`；详见 4.3 |
 
 `channel_map` 和 `mode_table` 只是文档字段，程序会忽略，方便人读。
 
@@ -437,6 +533,7 @@ INAV SITL 运行时配置
 - PID 写到 `run/sitl.pid`、`run/bridge.pid`。
 - `start all` 先启动 SITL，等 5760/5761 就绪，再启动 bridge；SITL 起不来就不会启动 bridge。
 - `start bridge` 时如果 SITL 没运行：只警告，bridge 仍然启动并不断重连 5762。
+- 没有 HID 时，`keyboard.source=auto` 自动用键盘；如果 HID 和键盘都不可用，bridge 启动失败。
 - `start` 是幂等的，已经在运行就跳过。
 
 ### 6.2 外部 UI 还要手动操作
@@ -732,6 +829,8 @@ config/INAV_SITL_MINIMAL_NODEFAULTS.txt
 | `UNSUPPORTED AIRCRAFT TYPE` | SITL 平台不是 AIRPLANE | Configurator → Mixer → Platform `AIRPLANE`；或加载已包含 `set platform_type = AIRPLANE` 的配置 |
 | `SUPPORTED OSD TYPE NOT FOUND` | 没有 MSP DisplayPort/HD OSD | UART4 设为 `MSP DisplayPort`，OSD video `AVATAR`，OSD feature 打开 |
 | `unable to arm no rc link` / `FS` | 手柄桥没运行，5762 没有 MSP 帧 | 启动 `./hidctl start bridge`；用 `./hidctl status` 确认 5762 |
+| 键盘完全没反应 | macOS 没给辅助功能/输入监控权限 | 给 Terminal/Python 授权；`./hidctl doctor`；`python3 scripts/hid2msp.py --keys` |
+| Fn 减少油门无效 | macOS Fn 不产生普通 keycode | 把 `keyboard.keys.throttle_down` 改成 `left_option` 或 `left_control`，再 `./hidctl restart bridge` |
 | 只有 3 个模式 | 旧版用 SWC 做 2×3，SWC 没真正改变 CH6 | 当前版本已改成旋钮直接 6 档；确认 CH8 是否 1000/1200/…/2000 |
 | Pitch 反向 | `reverse` 方向不对 | 改 `config/hid2msp_inav.json` 里 CH2 的 `reverse`，执行 `./hidctl restart bridge` |
 | 启动桥就自动解锁 | SWB 在高位 | 先拨 SWB 低位，确认 CH7=1000 |
@@ -762,6 +861,7 @@ config/INAV_SITL_MINIMAL_NODEFAULTS.txt
 - HITL 插件只支持 **Airplane**，且只回传 roll/pitch/yaw/throttle；INAV 的每个舵机混控不会逐个出现在 X-Plane。
 - SITL 没有模拟 MAX7456；OSD 必须走 MSP DisplayPort。
 - 当前 HID 适配器把原 SWA 只编码成 `button0` 的 0/1，无法得到三档；所以改用 **axis3 旋钮** 做 6 档模式。
+- 键盘模式是全局读取按键，不拦截事件；X-Plane 仍可能收到同名按键，避免在 X-Plane 里绑定 WASD/空格/数字键。
 - HITL 插件 v1.5.0 主要面向 INAV 7/8；INAV 9.0 联调时如遇协议差异，需要降级或改插件。
 - X-Plane 11 在 Apple Silicon 上通过 Rosetta 运行；X-Plane 12 原生 arm64 需要 arm64/universal 插件。
 - 本配置仅用于 SITL，**不要刷入真实飞机**。

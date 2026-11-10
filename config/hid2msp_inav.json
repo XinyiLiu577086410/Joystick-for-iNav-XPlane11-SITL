@@ -2,7 +2,7 @@
   "host": "127.0.0.1",
   "port": 5762,
   "rate_hz": 50,
-  "notes": "Calibrated: Roll=axis5, Pitch=axis0, Throttle=axis1, Yaw=axis4, Knob=axis3. CH8=knob 6 modes. SWC=button3 -> CH6 NAV WP. SWB=button2 -> CH7 ARM. CH9=2000 NAV LAUNCH.",
+  "notes": "Calibrated: Roll=axis5, Pitch=axis0, Throttle=axis1, Yaw=axis4, Knob=axis3. CH8=knob 6 modes. SWC=button3 -> CH6 NAV WP. SWB=button2 -> CH7 ARM. CH9=2000 NAV LAUNCH. Keyboard: auto fallback when no HID; WASD + QE + 1-6 + Space + Left Shift/Fn.",
   "channel_map": {
     "1": "Roll (axis5)",
     "2": "Pitch (axis0)",
@@ -116,5 +116,28 @@
   ],
   "constants": {
     "9": 2000
+  },
+  "keyboard": {
+    "enabled": true,
+    "source": "auto",
+    "axis_rate": 600,
+    "throttle_rate": 600,
+    "keys": {
+      "roll_left": "a",
+      "roll_right": "d",
+      "pitch_up": "w",
+      "pitch_down": "s",
+      "yaw_left": "q",
+      "yaw_right": "e",
+      "arm": "space",
+      "throttle_up": "left_shift",
+      "throttle_down": "fn",
+      "mode_1": "1",
+      "mode_2": "2",
+      "mode_3": "3",
+      "mode_4": "4",
+      "mode_5": "5",
+      "mode_6": "6"
+    }
   }
 }

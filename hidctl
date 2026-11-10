@@ -42,6 +42,13 @@ COMPONENTS = ("sitl", "bridge")
 PWM_MIN, PWM_MAX = 1000, 2000
 KINDS = {"bipolar", "unipolar", "tri", "binary", "multi"}
 
+sys.path.insert(0, str(ROOT / "scripts"))
+from keyboard_input import (  # noqa: E402
+    DEFAULT_KEYS,
+    accessibility_trusted,
+    resolve_keycode,
+)
+
 
 # ---------------------------------------------------------------------------
 # Small helpers
@@ -310,6 +317,7 @@ def start_bridge(wait: bool = True) -> int:
         "bridge",
         [
             sys.executable,
+            "-u",
             str(BRIDGE),
             "--config",
             str(HID_CONFIG),
@@ -739,6 +747,37 @@ def validate_config(path: Path) -> list[str]:
         claim(channel, f"constants[{key}]")
         _check_pwm(value, f"constants[{key}]", errors)
 
+    if "keyboard" in data:
+        keyboard = data.get("keyboard") or {}
+        if not isinstance(keyboard, dict):
+            errors.append("keyboard: must be an object")
+        else:
+            source = str(keyboard.get("source", "auto")).lower()
+            if source not in ("auto", "hid", "keyboard"):
+                errors.append("keyboard.source: must be auto, hid, or keyboard")
+            for field_name in ("axis_rate", "throttle_rate"):
+                value = keyboard.get(field_name, 600)
+                if not isinstance(value, (int, float)) or value <= 0:
+                    errors.append(f"keyboard.{field_name}: must be > 0")
+            keys = keyboard.get("keys", {}) or {}
+            if not isinstance(keys, dict):
+                errors.append("keyboard.keys: must be an object")
+            else:
+                used_keys: dict[str, str] = {}
+                for action, key_name in keys.items():
+                    if action not in DEFAULT_KEYS:
+                        errors.append(f"keyboard.keys.{action}: unknown action")
+                    try:
+                        resolve_keycode(key_name)
+                    except ValueError as exc:
+                        errors.append(f"keyboard.keys.{action}: {exc}")
+                    lowered = str(key_name).lower()
+                    if lowered in used_keys and used_keys[lowered] != action:
+                        errors.append(
+                            f"keyboard.keys.{action}: key {key_name!r} already used by {used_keys[lowered]}"
+                        )
+                    used_keys[lowered] = action
+
     return errors
 
 
@@ -773,6 +812,16 @@ def cmd_doctor() -> int:
     checks.append(("Python", sys.version_info >= (3, 10), sys.version.split()[0]))
     checks.append(("hid2msp.py", BRIDGE.is_file(), str(BRIDGE)))
 
+    keyboard_enabled = True
+    keyboard_source = "auto"
+    count = 0
+    try:
+        raw = json.loads(HID_CONFIG.read_text())
+        keyboard_enabled = bool((raw.get("keyboard") or {}).get("enabled", True))
+        keyboard_source = str((raw.get("keyboard") or {}).get("source", "auto")).lower()
+    except Exception:
+        pass
+
     try:
         os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
         import pygame  # type: ignore
@@ -781,9 +830,29 @@ def cmd_doctor() -> int:
         pygame.joystick.init()
         count = pygame.joystick.get_count()
         pygame.quit()
-        checks.append(("pygame / HID", count > 0, f"{count} joystick(s)"))
+        if count > 0:
+            checks.append(("pygame / HID", True, f"{count} joystick(s)"))
+        elif keyboard_enabled and keyboard_source in ("auto", "keyboard"):
+            checks.append(("pygame / HID", True, "0 joysticks; keyboard fallback"))
+        else:
+            checks.append(("pygame / HID", False, "0 joysticks and keyboard disabled/forced hid"))
     except Exception as exc:  # noqa: BLE001
         checks.append(("pygame / HID", False, str(exc)))
+
+    keyboard_required = keyboard_enabled and (
+        keyboard_source == "keyboard" or (keyboard_source == "auto" and count == 0)
+    )
+    if keyboard_required:
+        trusted = accessibility_trusted()
+        checks.append(
+            (
+                "keyboard access",
+                trusted is True,
+                "grant Accessibility/Input Monitoring to Terminal/Python"
+                if trusted is not True
+                else "trusted",
+            )
+        )
 
     errors = validate_config(HID_CONFIG)
     checks.append(("HID config", not errors, f"{len(errors)} error(s)" if errors else "ok"))

@@ -5,7 +5,7 @@
 | 文件 | 类型 | 谁读取 |
 |---|---|---|
 | `INAV_SITL_MINIMAL_NODEFAULTS.txt` | INAV CLI 源配置 | 人/Configurator CLI 手动加载 |
-| `hid2msp_inav.json` | HID → RC 映射 | `scripts/hid2msp.py` 每次启动 |
+| `hid2msp_inav.json` | HID → RC 映射 + 键盘键位 | `scripts/hid2msp.py` 每次启动 |
 | `hid2msp.example.json` | 通用示例 | 仅参考，不参与运行 |
 | `runtime/plane.bin` | SITL eeprom | SITL 每次启动 `--path` 读取 |
 | `runtime/backups/` | eeprom 备份 | `hidctl backup` / `reset` / `restore` 生成 |
