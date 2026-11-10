@@ -18,7 +18,7 @@
 ```bash
 cd "$HOME/Desktop/Read-the-Source-Code/hid-as-rx"
 
-# 单入口：默认启动 SITL + bridge，后台运行并打印状态摘要
+# 单入口：启动 SITL + bridge，默认把启动日志打印到 stdout
 ./hidctl start
 
 # 看状态
@@ -560,19 +560,20 @@ INAV SITL 运行时配置
 
 行为：
 
-- 成功后默认打印状态摘要和日志路径；`--quiet` 可静默，错误写 stderr。
+- 成功后默认把**本次启动日志**和状态摘要打印到 stdout；错误写 stderr。
 - 组件输出追加到 `logs/sitl.log`、`logs/bridge.log`。
 - PID 写到 `run/sitl.pid`、`run/bridge.pid`。
 - `start all` 先启动 SITL，等 5760/5761 就绪，再启动 bridge；SITL 起不来就不会启动 bridge。
 - `start bridge` 时如果 SITL 没运行：只警告，bridge 仍然启动并不断重连 5762。
 - 没有 HID 时，`keyboard.source=auto` 自动用键盘；如果 HID 和键盘都不可用，bridge 启动失败。
 - `start` 是幂等的，已经在运行就跳过。
-- 默认等同于 `./hidctl start --verbose`，会打印状态摘要和日志路径。
-- 不需要输出时：
+- 默认会打印本次启动的 SITL/bridge 日志；`--quiet` 可完全静默。
+- 启动后持续跟随日志到 stdout：
   ```bash
-  ./hidctl start --quiet
+  ./hidctl start --follow
   ```
-- 想持续看组件输出：
+  `Ctrl-C` 只停止跟随，不会停止组件。
+- 也可以随时单独跟随：
   ```bash
   ./hidctl logs bridge -f
   ```
