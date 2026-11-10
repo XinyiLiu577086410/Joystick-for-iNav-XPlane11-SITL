@@ -1404,6 +1404,8 @@ SETUP_BASELINE_SECONDS = 0.6
 SETUP_STICK_SECONDS = 2.0
 SETUP_KNOB_SECONDS = 1.2
 SETUP_BUTTON_SECONDS = 0.8
+SETUP_WAIT_SECONDS = 8.0
+SETUP_HOLD_SECONDS = 0.8
 SETUP_MIN_DELTA = 0.35
 
 
@@ -1432,20 +1434,72 @@ def _measure(pad, seconds: float) -> tuple[list[float], list[bool]]:
     return means, pressed
 
 
+def _wait_axis_change(
+    pad, base: list[float], timeout: float, threshold: float = 0.5
+) -> tuple[int, float] | None:
+    """Wait until any axis deviates from base; return (axis, delta)."""
+    end = time.monotonic() + timeout
+    best_axis, best_abs = 0, 0.0
+    next_report = time.monotonic() + 1.0
+    while time.monotonic() < end:
+        axes, _ = pad.poll()
+        deltas = [axes[index] - base[index] for index in range(len(base))]
+        axis = max(range(len(deltas)), key=lambda index: abs(deltas[index]))
+        if abs(deltas[axis]) > best_abs:
+            best_abs = abs(deltas[axis])
+            best_axis = axis
+        if abs(deltas[axis]) >= threshold:
+            print()
+            return axis, deltas[axis]
+        if time.monotonic() >= next_report:
+            print(".", end="", flush=True)
+            next_report += 1.0
+        time.sleep(0.02)
+    print()
+    print(f"  largest change: axis {best_axis} {best_abs:+.2f} (need {threshold:+.2f})")
+    return None
+
+
+def _wait_button_change(
+    pad, base: list[bool], timeout: float
+) -> list[int] | None:
+    """Wait until any button changes state; return the changed indexes."""
+    end = time.monotonic() + timeout
+    next_report = time.monotonic() + 1.0
+    while time.monotonic() < end:
+        _, buttons = pad.poll()
+        changed = [
+            index for index in range(len(base)) if bool(buttons[index]) != base[index]
+        ]
+        if changed:
+            print()
+            return changed
+        if time.monotonic() >= next_report:
+            print(".", end="", flush=True)
+            next_report += 1.0
+        time.sleep(0.02)
+    print()
+    return None
+
+
 def _detect_stick(pad, label: str, direction: str) -> tuple[int, bool] | None:
     for attempt in range(3):
         _ask(f"\n{label}: center the stick, then press Enter")
         base, _ = _measure(pad, SETUP_BASELINE_SECONDS)
-        _ask(
-            f"Move {label} {direction} to maximum and hold it, "
-            f"then press Enter (sampling {SETUP_STICK_SECONDS:.0f}s)"
+        print(
+            f"now move {label} {direction} to maximum and hold it "
+            f"(waiting up to {SETUP_WAIT_SECONDS:.0f}s)"
         )
-        during, _ = _measure(pad, SETUP_STICK_SECONDS)
-        deltas = [during[index] - base[index] for index in range(pad.num_axes)]
-        axis = max(range(pad.num_axes), key=lambda index: abs(deltas[index]))
-        if abs(deltas[axis]) >= SETUP_MIN_DELTA:
-            return axis, deltas[axis] < 0
-        print(f"  no clear movement (max {deltas[axis]:+.2f}), attempt {attempt + 1}/3 failed")
+        found = _wait_axis_change(pad, base, SETUP_WAIT_SECONDS)
+        if found is None:
+            print(f"  no axis moved, attempt {attempt + 1}/3 failed")
+            continue
+        axis, _ = found
+        held, _ = _measure(pad, SETUP_HOLD_SECONDS)
+        delta = held[axis] - base[axis]
+        if abs(delta) >= SETUP_MIN_DELTA:
+            return axis, delta < 0
+        print(f"  movement too small (axis {axis}: {delta:+.2f}), attempt {attempt + 1}/3 failed")
     return None
 
 
@@ -1453,13 +1507,17 @@ def _detect_knob(pad) -> tuple[int, bool] | None:
     for attempt in range(3):
         _ask("\nMode knob: turn it to the lowest position, then press Enter")
         low, _ = _measure(pad, SETUP_KNOB_SECONDS)
-        _ask("Turn the mode knob to the highest position, then press Enter")
-        high, _ = _measure(pad, SETUP_KNOB_SECONDS)
-        deltas = [high[index] - low[index] for index in range(pad.num_axes)]
-        axis = max(range(pad.num_axes), key=lambda index: abs(deltas[index]))
-        if abs(deltas[axis]) >= SETUP_MIN_DELTA:
-            return axis, deltas[axis] < 0
-        print(f"  knob did not move enough (max {deltas[axis]:+.2f}), attempt {attempt + 1}/3 failed")
+        print(f"now turn the mode knob to the highest position (waiting up to {SETUP_WAIT_SECONDS:.0f}s)")
+        found = _wait_axis_change(pad, low, SETUP_WAIT_SECONDS)
+        if found is None:
+            print(f"  no axis moved, attempt {attempt + 1}/3 failed")
+            continue
+        axis, _ = found
+        high, _ = _measure(pad, SETUP_HOLD_SECONDS)
+        delta = high[axis] - low[axis]
+        if abs(delta) >= SETUP_MIN_DELTA:
+            return axis, delta < 0
+        print(f"  movement too small (axis {axis}: {delta:+.2f}), attempt {attempt + 1}/3 failed")
     return None
 
 
@@ -1467,16 +1525,17 @@ def _detect_switch(pad, label: str) -> tuple[int, bool] | None:
     for attempt in range(3):
         _ask(f"\n{label}: set the switch LOW, then press Enter")
         _, low = _measure(pad, SETUP_BUTTON_SECONDS)
-        _ask(f"Set {label} HIGH, then press Enter")
-        _, high = _measure(pad, SETUP_BUTTON_SECONDS)
-        changed = [index for index in range(pad.num_buttons) if low[index] != high[index]]
-        if len(changed) == 1:
-            button = changed[0]
-            return button, not high[button]
+        print(f"now flip {label} to HIGH (waiting up to {SETUP_WAIT_SECONDS:.0f}s)")
+        changed = _wait_button_change(pad, low, SETUP_WAIT_SECONDS)
+        if changed is None:
+            print(f"  no button changed, attempt {attempt + 1}/3 failed")
+            continue
         if len(changed) > 1:
             print(f"  several buttons changed at once {changed}; move one switch only")
-        else:
-            print(f"  no button change detected, attempt {attempt + 1}/3 failed")
+            continue
+        button = changed[0]
+        _, high = _measure(pad, SETUP_HOLD_SECONDS)
+        return button, not high[button]
     return None
 
 
@@ -1496,7 +1555,8 @@ def cmd_setup(no_write: bool = False, restart: bool = False) -> int:
 
     print("=== HID channel setup ===")
     print(f"device: {pad.name}  axes={pad.num_axes} buttons={pad.num_buttons}")
-    print("Follow each prompt, move the requested control, then press Enter to sample.")
+    print("For each step: get ready, press Enter, then move the control.")
+    print("The wizard waits up to %.0f s for the movement and reports what it sees." % SETUP_WAIT_SECONDS)
     print("Ctrl-C cancels without writing anything.\n")
 
     sticks = [
