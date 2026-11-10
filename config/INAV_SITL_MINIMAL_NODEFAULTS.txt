@@ -1,8 +1,8 @@
 diff all
 
 # version
-# INAV/SITL 9.0.0 Jan 14 2026 / 08:28:11 (a7932b92) 
-# GCC-Apple LLVM 17.0.0 (clang-1700.0.13.5)
+# INAV/SITL 10.0.0 Sep 22 2026 / 15:28:16 (86a0441c) 
+# GCC-14.4.0
 
 # start the command batch
 batch start
@@ -53,14 +53,11 @@ blackbox -PEAKS_Y
 blackbox SERVOS
 
 # Receiver: Channel map
-# Explicit AETR input order: CH1 roll, CH2 pitch, CH3 throttle, CH4 yaw,
-# matching config/hid2msp_inav.json. This is also INAV's default mapping.
-map AETR
 
 # Ports
-serial 1 1 115200 115200 0 115200
-serial 2 1 115200 115200 0 115200
-serial 3 33554432 115200 115200 0 115200
+serial 1 1 4295082496 4295082496 8427199769 8427232055
+serial 2 1 4295082496 4295082496 8427199769 8427232055
+serial 3 33554432 4295082496 4295082496 8427199769 8427232055
 
 # Modes [aux]
 aux 0 0 2 1950 2050
@@ -111,25 +108,25 @@ osd_layout 0 28 3 16 V
 osd_layout 0 29 3 17 V
 osd_layout 0 30 12 4 V
 osd_layout 0 31 5 0 V
-osd_layout 0 32 45 14 V
+osd_layout 0 32 45 14 H
 osd_layout 0 34 22 1 V
 osd_layout 0 35 45 7 H
 osd_layout 0 38 45 0 H
 osd_layout 0 39 45 8 H
-osd_layout 0 40 4 15 V
+osd_layout 0 40 3 15 V
 osd_layout 0 41 37 14 V
 osd_layout 0 42 37 13 V
 osd_layout 0 46 3 12 V
 osd_layout 0 47 3 13 H
 osd_layout 0 51 24 15 V
-osd_layout 0 54 45 15 V
+osd_layout 0 54 45 15 H
 osd_layout 0 67 19 18 H
 osd_layout 0 68 19 19 H
 osd_layout 0 72 26 18 H
 osd_layout 0 73 26 19 H
 osd_layout 0 85 5 8 V
-osd_layout 0 86 45 9 V
-osd_layout 0 87 45 10 V
+osd_layout 0 86 45 9 H
+osd_layout 0 87 45 10 H
 osd_layout 0 96 4 6 V
 osd_layout 0 97 10 0 H
 osd_layout 0 98 3 14 H
@@ -141,7 +138,7 @@ osd_layout 0 110 14 1 H
 osd_layout 0 111 8 1 H
 osd_layout 0 112 1 2 H
 osd_layout 0 119 21 19 V
-osd_layout 0 120 37 11 V
+osd_layout 0 120 37 11 H
 osd_layout 0 124 46 2 V
 osd_layout 0 125 4 8 H
 osd_layout 0 126 4 9 H
@@ -149,7 +146,7 @@ osd_layout 0 127 3 11 V
 osd_layout 0 128 3 1 V
 osd_layout 0 129 21 3 V
 osd_layout 0 133 45 4 H
-osd_layout 0 137 45 3 V
+osd_layout 0 137 46 3 V
 osd_layout 0 138 45 7 H
 osd_layout 0 140 27 0 V
 osd_layout 0 142 32 1 H
@@ -173,7 +170,7 @@ osd_layout 0 162 13 6 H
 osd_custom_elements 0 1 0 0 0 0 0 0 0 "GPS STAT"
 
 # master
-set ins_gravity_cmss =  868.928
+set ins_gravity_cmss =  975.295
 set acc_hardware = FAKE
 set opflow_scale =  4.449
 set align_mag = CW270FLIP

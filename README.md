@@ -334,8 +334,8 @@ pygame/手柄、键盘、HID 配置、eeprom、四个端口。
 进程立刻以 `3221225786`（0xC000013A）退出；同一时刻脱离控制台的实例不受影响。
 
 macOS 分支用 `start_new_session=True`（setsid）脱离终端；Windows 分支现在用
-`DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB`（失败时回退到
-`DETACHED_PROCESS`、`CREATE_NEW_PROCESS_GROUP`），SITL 和 bridge 都不再附着控制台：
+`DETACHED_PROCESS`（失败时回退到 `CREATE_NEW_PROCESS_GROUP`），SITL 和 bridge
+都不再附着控制台：
 
 - 关掉 PowerShell 窗口、IDE 终端、SSH 会话都不影响 SITL/bridge；
 - `hidctl status` 仍用 PID 文件管理它们；
@@ -378,7 +378,7 @@ PID 文件现在记录 **PID + 进程创建时间**（`run\sitl.pid` 两行）�
 |---|---|---|
 | 入口 | `./hidctl`（无扩展名、可执行位） | `hidctl.cmd` + `hidctl.py` |
 | 进程管理 | `lsof` / `pgrep` / `killpg` / `SIGKILL` | `OpenProcess` / `QueryFullProcessImageNameW` / `taskkill` / `CTRL_BREAK` |
-| 后台方式 | `start_new_session=True`（setsid） | `DETACHED_PROCESS` + `CREATE_BREAKAWAY_FROM_JOB`，不附着控制台 |
+| 后台方式 | `start_new_session=True`（setsid） | `DETACHED_PROCESS`，不附着控制台 |
 | 存活探测 | `os.kill(pid, 0)` | `GetExitCodeProcess`（Windows 上 `os.kill` 会直接杀进程） |
 | 端口连接 | `lsof -iTCP` | `netstat -ano` |
 | X-Plane 探测 | `.app` + `Info.plist` + `pgrep` | 注册表 Steam 路径 + `tasklist` + 版本资源 |

@@ -65,7 +65,6 @@ STILL_ACTIVE = 259
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 CREATE_NO_WINDOW = 0x08000000
 DETACHED_PROCESS = 0x00000008
-CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 CTRL_BREAK_EVENT = 1
 
 kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
@@ -488,13 +487,10 @@ def spawn(component: str, cmd: list[str]) -> subprocess.Popen | None:
         fh.flush()
         # Detach from the console: a console app started from a terminal dies
         # with STATUS_CONTROL_C_EXIT when that terminal/console closes, which
-        # looks like SITL "randomly dying".  Break away from job objects too so
-        # closing the launching shell cannot take the stack down.
-        attempts = (
-            DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB,
-            DETACHED_PROCESS,
-            CREATE_NEW_PROCESS_GROUP,
-        )
+        # looks like SITL "randomly dying".  A failed CREATE_BREAKAWAY_FROM_JOB
+        # attempt leaves a half-built Popen whose finalizer prints a spurious
+        # WinError 6 at exit, so only use flags that are known to work here.
+        attempts = (DETACHED_PROCESS, CREATE_NEW_PROCESS_GROUP)
         proc = None
         last_error: OSError | None = None
         for flags in attempts:
