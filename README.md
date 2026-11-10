@@ -567,6 +567,14 @@ INAV SITL 运行时配置
 - `start bridge` 时如果 SITL 没运行：只警告，bridge 仍然启动并不断重连 5762。
 - 没有 HID 时，`keyboard.source=auto` 自动用键盘；如果 HID 和键盘都不可用，bridge 启动失败。
 - `start` 是幂等的，已经在运行就跳过。
+- 默认静默；想启动后立刻看到状态：
+  ```bash
+  ./hidctl start --verbose
+  ```
+  想持续看组件输出：
+  ```bash
+  ./hidctl logs bridge -f
+  ```
 
 ### 6.2 外部 UI 还要手动操作
 

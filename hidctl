@@ -357,12 +357,17 @@ def stop_all() -> int:
     return 0
 
 
-def cmd_start(component: str) -> int:
+def cmd_start(component: str, verbose: bool = False) -> int:
     if component == "sitl":
-        return start_sitl()
-    if component == "bridge":
-        return start_bridge()
-    return start_all()
+        rc = start_sitl()
+    elif component == "bridge":
+        rc = start_bridge()
+    else:
+        rc = start_all()
+    if verbose:
+        print(f"logs: {LOGS / 'sitl.log'}  {LOGS / 'bridge.log'}")
+        cmd_status(False)
+    return rc
 
 
 def cmd_stop(component: str) -> int:
@@ -936,6 +941,13 @@ def build_parser() -> argparse.ArgumentParser:
             choices=("all", "sitl", "bridge"),
             help="component to manage (default: all)",
         )
+        if name == "start":
+            sp.add_argument(
+                "-v",
+                "--verbose",
+                action="store_true",
+                help="print resulting status and log paths",
+            )
 
     sp = sub.add_parser("status")
     sp.add_argument("--json", action="store_true")
@@ -990,7 +1002,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     try:
         if command == "start":
-            return cmd_start(args.component)
+            return cmd_start(args.component, verbose=args.verbose)
         if command == "stop":
             return cmd_stop(args.component)
         if command == "restart":
