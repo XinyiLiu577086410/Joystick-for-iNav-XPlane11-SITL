@@ -372,6 +372,24 @@ python3 scripts/hid2msp.py --keys
 
 `--keys` 会实时打印键盘通道，不需要 SITL，适合先确认键位。
 
+如果 `./hidctl doctor` 仍是 `FAIL keyboard input`：
+
+1. 确认输入监控列表里有 **Python**（不是只有 `hidctl`）：
+   ```text
+   /Library/Frameworks/Python.framework/Versions/3.10/Resources/Python.app
+   ```
+2. 通过 DSH 运行时，再添加 **DeepSeek Harness**；通过 Terminal 运行时，添加 **Terminal/iTerm**。
+3. **完全退出并重开** DeepSeek Harness 或 Terminal，然后重新执行：
+   ```bash
+   ./hidctl doctor
+   ```
+4. 还不行时，直接在 Terminal 里测试，排除 DSH 的 TCC 归属问题：
+   ```bash
+   cd "$HOME/Desktop/Read-the-Source-Code/hid-as-rx"
+   python3 scripts/hid2msp.py --keys
+   ```
+   如果 Terminal 里能读到键、DSH 里不能，就用 Terminal 运行 `./hidctl start`，或把 DeepSeek Harness 加入输入监控。
+
 #### Fn 键说明
 
 macOS 的 `Fn` 有时不会产生普通 keycode；代码会额外检查 `kCGEventFlagMaskSecondaryFn`。如果仍然检测不到，把配置改成更可靠的键：
