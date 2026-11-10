@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import plistlib
 import re
 import shutil
 import signal
@@ -438,6 +439,123 @@ def cmd_restart(component: str, verbose: bool = True, follow: bool = False) -> i
 
 
 # ---------------------------------------------------------------------------
+# X-Plane detection (external; never managed)
+# ---------------------------------------------------------------------------
+def _xplane_app_from_path(path: Path) -> Path | None:
+    try:
+        if path.name.endswith(".app"):
+            return path if (path / "Contents" / "Info.plist").is_file() else None
+        for name in ("X-Plane.app", "X-Plane 12.app", "X-Plane 11.app"):
+            app = path / name
+            if (app / "Contents" / "Info.plist").is_file():
+                return app
+    except OSError:
+        pass
+    return None
+
+
+def _xplane_meta(app: Path | None) -> tuple[str | None, str | None]:
+    if app is None:
+        return None, None
+    try:
+        with (app / "Contents" / "Info.plist").open("rb") as fh:
+            data = plistlib.load(fh)
+        version = str(data.get("CFBundleShortVersionString") or "").strip() or None
+        name = str(data.get("CFBundleName") or app.stem).strip() or None
+        return version, name
+    except (OSError, plistlib.InvalidFileException, ValueError):
+        return None, app.stem if app else None
+
+
+def _xplane_candidates() -> list[Path]:
+    home = Path.home()
+    raw = [
+        os.environ.get("XPLANE_PATH"),
+        os.environ.get("XPLANE_APP"),
+        str(home / "Library/Application Support/Steam/steamapps/common/X-Plane 11"),
+        str(home / "Library/Application Support/Steam/steamapps/common/X-Plane 12"),
+        str(home / "Applications/X-Plane 11.app"),
+        str(home / "Applications/X-Plane 12.app"),
+        "/Applications/X-Plane 11.app",
+        "/Applications/X-Plane 12.app",
+    ]
+    result: list[Path] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not item:
+            continue
+        path = Path(item).expanduser()
+        key = str(path)
+        if key not in seen and path.exists():
+            seen.add(key)
+            result.append(path)
+    return result
+
+
+def _xplane_app_from_pid(pid: int) -> Path | None:
+    try:
+        result = subprocess.run(
+            ["lsof", "-nP", "-p", str(pid), "-F", "n"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        for line in result.stdout.splitlines():
+            if not line.startswith("n"):
+                continue
+            path = Path(line[1:])
+            if path.name == "X-Plane" and path.parent.name == "MacOS":
+                return path.parents[2]
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+
+def xplane_info() -> dict:
+    pid: int | None = None
+    try:
+        result = subprocess.run(
+            ["pgrep", "-f", "/X-Plane.app/Contents/MacOS/X-Plane"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        for line in result.stdout.splitlines():
+            if line.strip().isdigit():
+                pid = int(line.strip())
+                break
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    app = _xplane_app_from_pid(pid) if pid is not None else None
+    if app is None:
+        for candidate in _xplane_candidates():
+            app = _xplane_app_from_path(candidate)
+            if app is not None:
+                break
+
+    version, name = _xplane_meta(app)
+    return {
+        "external": True,
+        "managed": False,
+        "running": pid is not None,
+        "pid": pid,
+        "version": version,
+        "name": name,
+        "path": str(app) if app is not None else None,
+    }
+
+
+def _xplane_label(info: dict) -> str:
+    version = info.get("version") or "version unknown"
+    if info.get("running"):
+        return f"running {version}  pid {info.get('pid')}"
+    if info.get("path"):
+        return f"installed {version}  (not running)"
+    return "not found"
+
+
+# ---------------------------------------------------------------------------
 # Status
 # ---------------------------------------------------------------------------
 def status_data() -> dict:
@@ -472,7 +590,7 @@ def status_data() -> dict:
         },
         "eeprom": eeprom,
         "config": str(HID_CONFIG),
-        "xplane": "external",
+        "xplane": xplane_info(),
     }
 
 
@@ -511,7 +629,7 @@ def cmd_status(as_json: bool) -> int:
             print(f"eeprom  {display_path(EEPROM)}  (missing)")
 
         print(f"config  {display_path(HID_CONFIG)}")
-        print("xplane  external (not managed)")
+        print(f"xplane  {_xplane_label(data['xplane'])}  (external, not managed)")
 
     ok = (
         data["sitl"]["running"]
@@ -862,6 +980,14 @@ def cmd_doctor() -> int:
     checks: list[tuple[str, bool, str]] = []
 
     checks.append(("SITL binary", SITL.is_file() and os.access(SITL, os.X_OK), str(SITL)))
+    xp = xplane_info()
+    checks.append(
+        (
+            "X-Plane",
+            xp["path"] is not None,
+            _xplane_label(xp),
+        )
+    )
     checks.append(("Python", sys.version_info >= (3, 10), sys.version.split()[0]))
     checks.append(("hid2msp.py", BRIDGE.is_file(), str(BRIDGE)))
 

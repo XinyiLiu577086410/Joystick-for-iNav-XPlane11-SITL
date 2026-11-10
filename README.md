@@ -601,10 +601,13 @@ sitl    running  pid 12345  ports 5760,5761,5762,5763
 bridge  running  pid 12346  target 127.0.0.1:5762  connected
 eeprom  ./config/runtime/plane.bin  (32768 bytes, 2026-11-10 10:20:31)
 config  ./config/hid2msp_inav.json
-xplane  external (not managed)
+xplane  installed 11.55r2  (not running)  (external, not managed)
 ```
 
 - `bridge` 可能显示 `waiting`（SITL 没起或正在重连）或 `unknown`（无法用 `lsof` 判断）。
+- `xplane` 只读探测：是否运行、PID、版本号、安装路径；`hidctl` 不会启动/停止它。
+  - 未运行时显示 `installed 11.55r2 (not running)`
+  - 运行时显示 `running 11.55r2 pid ...`
 - 退出码：`0` 表示 SITL 正常运行且 bridge 已连接；否则 `1`。
 
 ### 6.4 日志
