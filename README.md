@@ -602,12 +602,19 @@ bridge  running  pid 12346  target 127.0.0.1:5762  connected
 eeprom  ./config/runtime/plane.bin  (32768 bytes, 2026-11-10 10:20:31)
 config  ./config/hid2msp_inav.json
 xplane  installed 11.55r2  (not running)  (external, not managed)
+hitl    installed v1.5.0  link: disconnected  (X-Plane plugin)
 ```
 
 - `bridge` 可能显示 `waiting`（SITL 没起或正在重连）或 `unknown`（无法用 `lsof` 判断）。
 - `xplane` 只读探测：是否运行、PID、版本号、安装路径；`hidctl` 不会启动/停止它。
   - 未运行时显示 `installed 11.55r2 (not running)`
   - 运行时显示 `running 11.55r2 pid ...`
+- `hitl` 检查 X-Plane 的 HITL 插件：
+  - 是否安装：找 `Aircraft/Extra Aircraft/*/plugins/INAV-X-Plane-HITL/64/mac.xpl`
+  - 插件版本：从 `mac.xpl` 读取，例如 `v1.5.0`
+  - 连接状态：检查 `5761` 是否有 ESTABLISHED 连接
+  - 未连接时显示 `link: disconnected`，插件连接后显示 `link: connected`
+- `xplane` 和 `hitl` 都是外部组件，不参与 `status` 退出码；退出码仍由 SITL/bridge 决定。
 - 退出码：`0` 表示 SITL 正常运行且 bridge 已连接；否则 `1`。
 
 ### 6.4 日志

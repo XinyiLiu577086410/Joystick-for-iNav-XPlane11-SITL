@@ -535,6 +535,9 @@ def xplane_info() -> dict:
                 break
 
     version, name = _xplane_meta(app)
+    root = None
+    if app is not None and app.name == "X-Plane.app":
+        root = str(app.parent)
     return {
         "external": True,
         "managed": False,
@@ -543,7 +546,89 @@ def xplane_info() -> dict:
         "version": version,
         "name": name,
         "path": str(app) if app is not None else None,
+        "root": root,
     }
+
+
+def _hitl_candidates(xp: dict) -> list[Path]:
+    roots: list[Path] = []
+    if xp.get("root"):
+        roots.append(Path(xp["root"]))
+    for candidate in _xplane_candidates():
+        if candidate.is_dir() and not candidate.name.endswith(".app"):
+            roots.append(candidate)
+
+    found: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        direct = (
+            root
+            / "Aircraft/Extra Aircraft/NK_FPVSurfwing/plugins"
+            / "INAV-X-Plane-HITL/64/mac.xpl"
+        )
+        candidates = [direct]
+        try:
+            candidates.extend(
+                root.glob(
+                    "Aircraft/Extra Aircraft/*/plugins/INAV-X-Plane-HITL/64/mac.xpl"
+                )
+            )
+        except OSError:
+            pass
+        for path in candidates:
+            key = str(path)
+            if key not in seen and path.is_file():
+                seen.add(key)
+                found.append(path)
+    return found
+
+
+def _hitl_connected() -> bool:
+    try:
+        result = subprocess.run(
+            ["lsof", "-nP", "-iTCP:5761", "-sTCP:ESTABLISHED"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        return bool(result.stdout.strip())
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _hitl_version(path: Path | None) -> str | None:
+    if path is None:
+        return None
+    try:
+        data = path.read_bytes()
+        matches = re.findall(rb"V(\d+\.\d+\.\d+)", data)
+        if matches:
+            return matches[-1].decode("ascii", errors="replace")
+    except OSError:
+        pass
+    return None
+
+
+def hitl_info(xp: dict | None = None) -> dict:
+    if xp is None:
+        xp = xplane_info()
+    paths = _hitl_candidates(xp)
+    path = paths[0] if paths else None
+    return {
+        "external": True,
+        "installed": path is not None,
+        "version": _hitl_version(path),
+        "path": str(path) if path is not None else None,
+        "connected": _hitl_connected(),
+    }
+
+
+def _hitl_label(info: dict) -> str:
+    if not info.get("installed"):
+        return "plugin not found"
+    version = info.get("version") or "version unknown"
+    link = "connected" if info.get("connected") else "disconnected"
+    return f"installed v{version}  link: {link}"
 
 
 def _xplane_label(info: dict) -> str:
@@ -576,6 +661,7 @@ def status_data() -> dict:
             else None
         ),
     }
+    xp = xplane_info()
     return {
         "sitl": {
             "running": sitl_running,
@@ -590,7 +676,8 @@ def status_data() -> dict:
         },
         "eeprom": eeprom,
         "config": str(HID_CONFIG),
-        "xplane": xplane_info(),
+        "xplane": xp,
+        "hitl": hitl_info(xp),
     }
 
 
@@ -630,6 +717,7 @@ def cmd_status(as_json: bool) -> int:
 
         print(f"config  {display_path(HID_CONFIG)}")
         print(f"xplane  {_xplane_label(data['xplane'])}  (external, not managed)")
+        print(f"hitl    {_hitl_label(data['hitl'])}  (X-Plane plugin)")
 
     ok = (
         data["sitl"]["running"]
@@ -988,6 +1076,8 @@ def cmd_doctor() -> int:
             _xplane_label(xp),
         )
     )
+    hitl = hitl_info(xp)
+    checks.append(("HITL plugin", hitl["installed"], _hitl_label(hitl)))
     checks.append(("Python", sys.version_info >= (3, 10), sys.version.split()[0]))
     checks.append(("hid2msp.py", BRIDGE.is_file(), str(BRIDGE)))
 
