@@ -39,6 +39,7 @@ EEPROM = RUNTIME / "plane.bin"
 HID_CONFIG = CONFIG / "hid2msp_inav.json"
 BRIDGE = ROOT / "scripts" / "hid2msp.py"
 LOGPUMP = ROOT / "scripts" / "logpump.py"
+MSP_TAP = ROOT / "scripts" / "msp_tap.py"
 HIDCTL_LOG = LOGS / "hidctl.log"
 
 PORTS = (5760, 5761, 5762, 5763)
@@ -1923,6 +1924,122 @@ def cmd_setup(no_write: bool = False, restart: bool = False) -> int:
 
 
 # ---------------------------------------------------------------------------
+# MSP capture session
+# ---------------------------------------------------------------------------
+def cmd_capture(seconds: float) -> int:
+    """Run a throw-away SITL on ports 5860-5863 behind an MSP tap on 5761.
+
+    The X-Plane plugin always connects to 5761; the tap forwards to SITL's
+    UART2 on 5861 and logs every MSP frame, so plugin->SITL traffic can be
+    inspected without admin rights or pcap drivers.
+    """
+    ensure_dirs()
+    if component_running("sitl")[0] or component_running("bridge")[0]:
+        err("stop the running stack first: .\\hidctl.cmd stop")
+        return 1
+    for port in (5761, 5860, 5861, 5862, 5863):
+        if port_open(port):
+            err(f"port {port} is already in use; stop the old SITL/bridge first")
+            return 1
+
+    sitl = find_sitl()
+    if sitl is None:
+        err("SITL not found; install INAV Configurator or set HIDCTL_SITL")
+        return 1
+
+    capture_dir = LOGS / "capture"
+    capture_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    msp_log = capture_dir / f"msp-{stamp}.log"
+    sitl_log = capture_dir / f"sitl-{stamp}.log"
+    bridge_log = capture_dir / f"bridge-{stamp}.log"
+
+    sitl_handle = sitl_log.open("ab")
+    bridge_handle = bridge_log.open("ab")
+    processes: list[subprocess.Popen] = []
+    try:
+        sitl_proc = subprocess.Popen(
+            [str(sitl), f"--path={EEPROM}", "--tcpbaseport=5860"],
+            stdin=subprocess.DEVNULL,
+            stdout=sitl_handle,
+            stderr=subprocess.STDOUT,
+            creationflags=CREATE_NO_WINDOW,
+        )
+        processes.append(sitl_proc)
+
+        if not wait_ports((5860, 5861), 20.0, sitl_proc.pid):
+            err("capture SITL did not open 5860/5861; see logs\\capture")
+            return 1
+
+        tap_proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-u",
+                str(MSP_TAP),
+                "--listen-port",
+                "5761",
+                "--target-port",
+                "5861",
+                "--log",
+                str(msp_log),
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=CREATE_NO_WINDOW,
+        )
+        processes.append(tap_proc)
+
+        bridge_proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-u",
+                str(BRIDGE),
+                "--config",
+                str(HID_CONFIG),
+                "--port",
+                "5862",
+                "-v",
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=bridge_handle,
+            stderr=subprocess.STDOUT,
+            creationflags=CREATE_NO_WINDOW,
+        )
+        processes.append(bridge_proc)
+
+        print("capture session running:")
+        print(f"  SITL   : 5860-5863 (eeprom {display_path(EEPROM)})")
+        print(f"  tap    : 5761 -> 5861, MSP log {display_path(msp_log)}")
+        print("  bridge : 5862")
+        print("\nIn X-Plane: Plugins -> INAV HITL/SITL -> Connect to SITL -> 127.0.0.1:5761")
+        print(f"Recording for {seconds:.0f} s; Ctrl-C stops early.\n")
+        deadline = time.monotonic() + max(5.0, seconds)
+        try:
+            while time.monotonic() < deadline:
+                time.sleep(0.5)
+        except KeyboardInterrupt:
+            print("\nstopping capture ...")
+        return 0
+    finally:
+        for proc in reversed(processes):
+            try:
+                if proc.poll() is None:
+                    _taskkill(proc.pid)
+            except OSError:
+                pass
+        sitl_handle.close()
+        bridge_handle.close()
+        lines = 0
+        try:
+            lines = sum(1 for _ in msp_log.open("r", encoding="utf-8", errors="replace"))
+        except OSError:
+            pass
+        print(f"MSP frames logged: {lines} lines -> {display_path(msp_log)}")
+        audit(f"capture session msp={msp_log} lines={lines}")
+
+
+# ---------------------------------------------------------------------------
 # Doctor
 # ---------------------------------------------------------------------------
 def cmd_doctor() -> int:
@@ -2134,6 +2251,11 @@ def build_parser() -> argparse.ArgumentParser:
     invert.add_argument("channel", type=int, help="RC channel number (1-16)")
     invert.add_argument("--restart", action="store_true", help="restart the bridge after writing")
 
+    capture = sub.add_parser(
+        "capture", help="run SITL behind an MSP tap and log plugin traffic"
+    )
+    capture.add_argument("--seconds", type=float, default=180.0, help="capture duration (default 180)")
+
     sub.add_parser("version")
     return parser
 
@@ -2190,6 +2312,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_setup(args.no_write, args.restart)
         if command == "invert":
             return cmd_invert(args.channel, args.restart)
+        if command == "capture":
+            return cmd_capture(args.seconds)
         if command == "version":
             print(f"hidctl {VERSION} (windows)")
             return 0

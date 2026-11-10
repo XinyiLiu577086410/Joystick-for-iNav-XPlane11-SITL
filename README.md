@@ -396,6 +396,41 @@ PID 文件现在记录 **PID + 进程创建时间**（`run\sitl.pid` 两行）�
 .\hidctl.cmd logs all -f
 ```
 
+### 6.4 MSP 调试工具
+
+**1. 读飞控状态（不开 Configurator）**
+
+```powershell
+python scripts\msp_probe.py --port 5760
+python scripts\msp_probe.py --port 5760 --watch     # 每秒打印 RC + 姿态
+python scripts\msp_probe.py --port 5762 --rc 1500,1500,1000,1500 --count 50
+```
+
+输出 `api_version`、`fc_version`、`status`（mode flags）、`rc`、`attitude`、`box_ids`、
+`mode_ranges`。注意每个 UART 同时只允许一个客户端：Configurator 占着 5760、
+插件占着 5761 时，探针要换端口或先断开它们。
+
+**2. 抓插件 → 飞控的 MSP 流量**
+
+HITL 插件固定连 `127.0.0.1:5761`，所以用一个用户态 TCP tap 最方便（不需要管理员、
+不需要装 pcap 驱动）：
+
+```powershell
+.\hidctl.cmd stop
+.\hidctl.cmd capture --seconds 180
+```
+
+`capture` 会临时启动：
+- SITL：`5860-5863`（副本端口，不碰正常的 5760）；
+- tap：`5761 -> 5861`，把插件的每一帧 MSP 写进 `logs\capture\msp-*.log`；
+- bridge：`5862`。
+
+然后按提示在 X-Plane 里 `Connect to SITL → 127.0.0.1:5761` 即可。结束会打印
+MSP 帧数；日志里能看到 `MSP_SET_RAW_RC` 的通道值、`MSP_SIMULATOR` 等命令和时间戳。
+
+> 为什么不用 `pktmon`：它需要管理员权限，而且 **抓不到 127.0.0.1 回环流量**
+> （NDIS 层看不到 loopback），所以这里用用户态 tap。`scripts\msp_tap.py` 也可以单独运行。
+
 ---
 
 ## 7. 与 main（macOS）分支的差异
