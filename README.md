@@ -884,6 +884,20 @@ SITL 没有模拟 MAX7456 模拟 OSD；必须走 **MSP DisplayPort + HD OSD**，
 
 Configurator 里改的参数先存在 RAM，**必须 Save/save 才会写进 `config/runtime/plane.bin`**。
 
+持久化分三层：
+
+| 层次 | 操作 | 结果 |
+|---|---|---|
+| RAM | 在 Configurator 里改参数 | 只对当前 SITL 运行有效，重启丢失 |
+| eeprom | 点 **Save**，或 CLI `save` | 写入 `config/runtime/plane.bin`，下次 `hidctl start` 继续使用 |
+| Git 源文件 | `diff all` → 更新 `config/INAV_SITL_MINIMAL_NODEFAULTS.txt` → commit | 仓库可复现；不会自动发生 |
+
+建议改之前先备份：
+
+```bash
+./hidctl backup eeprom --name before-fc-change
+```
+
 1. 连接 Configurator：
    ```text
    TCP 127.0.0.1:5760
@@ -903,10 +917,14 @@ Configurator 里改的参数先存在 RAM，**必须 Save/save 才会写进 `con
    - Receiver：CH1–CH9 方向、CH7 解锁；
    - Modes：CH8 六段、CH6 WP、CH9 LAUNCH；
    - Servo/OSD 是否正常。
+8. 确认没问题后再备份一份：
+   ```bash
+   ./hidctl backup eeprom --name after-fc-change
+   ```
 
 #### 保存后源文件同步
 
-`.sitl`/eeprom 保存流程只更新：
+eeprom 保存流程只更新：
 
 ```text
 config/runtime/plane.bin
