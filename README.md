@@ -431,6 +431,53 @@ MSP 帧数；日志里能看到 `MSP_SET_RAW_RC` 的通道值、`MSP_SIMULATOR` 
 > 为什么不用 `pktmon`：它需要管理员权限，而且 **抓不到 127.0.0.1 回环流量**
 > （NDIS 层看不到 loopback），所以这里用用户态 tap。`scripts\msp_tap.py` 也可以单独运行。
 
+### 6.5 已知问题：Glide Range / Glide Time 导致 SITL 退出（INAV 10）
+
+**现象**：解锁后，或飞行中打开 Glide Range，SITL 无声退出，`logs\sitl.log` 里是：
+
+```text
+===== inav_SITL.exe exited code=2048 (0x00000800) =====   ← SIGFPE
+```
+
+X-Plane 插件随即断联。关闭 OSD 后可以稳定飞行；只隐藏这两个元素也能正常解锁。
+
+**原因**：INAV 10 `src/main/io/osd.c` 的 `osdGetRemainingGlideTime()`：
+
+```c
+float value = getEstimatedActualVelocity(Z);
+...
+if (value < 0) {
+    value = osdGetAltitude() / abs((int)value);   // (int)value == 0 时整数除零
+}
+```
+
+垂直速度落在 **-1 ~ 0 cm/s** 时 `(int)value == 0`，`abs(0) == 0`，触发 SIGFPE。
+
+**触发元素**：
+
+| 元素 | 编号 |
+|---|---|
+| `OSD_GLIDE_RANGE` | 137 |
+| `OSD_GLIDE_TIME_REMAINING` | 136 |
+
+**处理**（`H` 隐藏、`V` 显示）：
+
+```text
+osd_layout 0 137 46 3 H
+osd_layout 0 136 14 9 H
+save
+```
+
+Configurator 的 OSD 页面取消勾选 **Glide Range** / **Glide Time Remaining** 效果相同。
+
+**验证记录**：
+
+- OSD 关闭 + 解锁：120 秒稳定；
+- OSD 打开：解锁后约 11 秒 SIGFPE；
+- 只关闭 137/136、其余 OSD 全开：可以解锁并正常飞行（实测）。
+
+这是 INAV 10 固件的 bug，不是 HITL 插件或 bridge 的问题；升级 INAV 后可以再打开这两个元素。
+
 ---
 
 ## 7. 与 main（macOS）分支的差异
