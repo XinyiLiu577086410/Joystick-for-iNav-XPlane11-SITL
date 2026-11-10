@@ -319,6 +319,29 @@ SITL 启动时**只读** `config\runtime\plane.bin`（eeprom）。
 `doctor` 会逐项检查：SITL 二进制、X-Plane、HITL 插件、Python、桥脚本、
 pygame/手柄、键盘、HID 配置、eeprom、四个端口。
 
+### 6.1 SITL 在 Windows 上“莫名其妙死掉”
+
+`inav_SITL.exe` 是控制台程序。如果它附着在启动它的终端/控制台上，**关闭那个窗口**
+时 Windows 会给它发 `CTRL_CLOSE_EVENT`，Cygwin 转成 SIGHUP，进程以
+`0xC000013A`（STATUS_CONTROL_C_EXIT）退出。这个退出不经过 `hidctl stop`，
+所以 `logs\sitl.log` 没有 `stop sitl` 记录，事件查看器也没有崩溃报告，
+看起来就像“莫名其妙消失”。
+
+实测：用 `CREATE_NEW_CONSOLE` 启动 SITL，再向它的控制台窗口发 `WM_CLOSE`，
+进程立刻以 `3221225786`（0xC000013A）退出；同一时刻脱离控制台的实例不受影响。
+
+macOS 分支用 `start_new_session=True`（setsid）脱离终端；Windows 分支现在用
+`DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB`（失败时回退到
+`DETACHED_PROCESS`、`CREATE_NEW_PROCESS_GROUP`），SITL 和 bridge 都不再附着控制台：
+
+- 关掉 PowerShell 窗口、IDE 终端、SSH 会话都不影响 SITL/bridge；
+- `hidctl status` 仍用 PID 文件管理它们；
+- `hidctl stop` 对无控制台的进程走 `taskkill /T /F`；
+- 想重启栈请用 `hidctl restart`，不要靠关窗口。
+
+如果以后还看到 SITL 消失，先看 `logs\sitl.log` 有没有 `stop sitl` 头：
+有就是 hidctl 停的，没有就是外部原因（控制台关闭、被任务管理器结束、崩溃）。
+
 ---
 
 ## 7. 与 main（macOS）分支的差异
@@ -327,6 +350,7 @@ pygame/手柄、键盘、HID 配置、eeprom、四个端口。
 |---|---|---|
 | 入口 | `./hidctl`（无扩展名、可执行位） | `hidctl.cmd` + `hidctl.py` |
 | 进程管理 | `lsof` / `pgrep` / `killpg` / `SIGKILL` | `OpenProcess` / `QueryFullProcessImageNameW` / `taskkill` / `CTRL_BREAK` |
+| 后台方式 | `start_new_session=True`（setsid） | `DETACHED_PROCESS` + `CREATE_BREAKAWAY_FROM_JOB`，不附着控制台 |
 | 存活探测 | `os.kill(pid, 0)` | `GetExitCodeProcess`（Windows 上 `os.kill` 会直接杀进程） |
 | 端口连接 | `lsof -iTCP` | `netstat -ano` |
 | X-Plane 探测 | `.app` + `Info.plist` + `pgrep` | 注册表 Steam 路径 + `tasklist` + 版本资源 |

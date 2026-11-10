@@ -55,7 +55,7 @@
       "channel": 2,
       "kind": "bipolar",
       "trim": 1500,
-      "reverse": false,
+      "reverse": true,
       "deadband": 0.03,
       "expo": 0.0
     },

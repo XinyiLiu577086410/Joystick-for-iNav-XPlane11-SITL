@@ -64,6 +64,8 @@ SYNCHRONIZE = 0x00100000
 STILL_ACTIVE = 259
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 CREATE_NO_WINDOW = 0x08000000
+DETACHED_PROCESS = 0x00000008
+CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 CTRL_BREAK_EVENT = 1
 
 kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
@@ -409,18 +411,34 @@ def spawn(component: str, cmd: list[str]) -> subprocess.Popen | None:
     with log.open("ab") as fh:
         fh.write(("$ " + " ".join(cmd) + "\n").encode())
         fh.flush()
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                cwd=str(ROOT),
-                stdin=subprocess.DEVNULL,
-                stdout=fh,
-                stderr=subprocess.STDOUT,
-                creationflags=CREATE_NEW_PROCESS_GROUP,
-                close_fds=True,
-            )
-        except OSError as exc:
-            fh.write(f"spawn failed: {exc}\n".encode())
+        # Detach from the console: a console app started from a terminal dies
+        # with STATUS_CONTROL_C_EXIT when that terminal/console closes, which
+        # looks like SITL "randomly dying".  Break away from job objects too so
+        # closing the launching shell cannot take the stack down.
+        attempts = (
+            DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB,
+            DETACHED_PROCESS,
+            CREATE_NEW_PROCESS_GROUP,
+        )
+        proc = None
+        last_error: OSError | None = None
+        for flags in attempts:
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    cwd=str(ROOT),
+                    stdin=subprocess.DEVNULL,
+                    stdout=fh,
+                    stderr=subprocess.STDOUT,
+                    creationflags=flags,
+                    close_fds=True,
+                )
+                break
+            except OSError as exc:
+                last_error = exc
+                continue
+        if proc is None:
+            fh.write(f"spawn failed: {last_error}\n".encode())
             return None
     write_pid(component, proc.pid)
     append_log_line(component, f"pid={proc.pid}")
