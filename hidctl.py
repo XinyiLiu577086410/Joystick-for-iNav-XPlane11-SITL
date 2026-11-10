@@ -1533,7 +1533,7 @@ def _wait_button_change(
     return None
 
 
-def _detect_stick(pad, label: str, direction: str) -> tuple[int, bool] | None:
+def _detect_stick(pad, label: str, direction: str) -> tuple[int, float] | None:
     for attempt in range(3):
         _ask(f"\n{label}: center the stick, then press Enter")
         base, _ = _measure(pad, SETUP_BASELINE_SECONDS)
@@ -1549,7 +1549,7 @@ def _detect_stick(pad, label: str, direction: str) -> tuple[int, bool] | None:
         held, _ = _measure(pad, SETUP_HOLD_SECONDS)
         delta = held[axis] - base[axis]
         if abs(delta) >= SETUP_MIN_DELTA:
-            return axis, delta < 0
+            return axis, delta
         print(f"  movement too small (axis {axis}: {delta:+.2f}), attempt {attempt + 1}/3 failed")
     return None
 
@@ -1611,21 +1611,24 @@ def cmd_setup(no_write: bool = False, restart: bool = False) -> int:
     print("Ctrl-C cancels without writing anything.\n")
 
     sticks = [
-        ("CH1 Roll", "roll (aileron)", "right"),
-        ("CH2 Pitch", "pitch", "up (pull)"),
-        ("CH3 Throttle", "throttle", "up to maximum"),
-        ("CH4 Yaw", "yaw (rudder)", "right"),
+        ("CH1 Roll", "roll (aileron)", "right", False),
+        ("CH2 Pitch", "pitch", "up (pull)", True),
+        ("CH3 Throttle", "throttle", "up to maximum", False),
+        ("CH4 Yaw", "yaw (rudder)", "right", False),
     ]
 
     detected: list[tuple[int, bool]] = []
     try:
-        for label, name, direction in sticks:
+        for label, name, direction, invert in sticks:
             result = _detect_stick(pad, f"{label} {name}", direction)
             if result is None:
                 err(f"{label}: detection failed, aborting")
                 return 1
-            detected.append(result)
-            axis, inverted = result
+            axis, delta = result
+            # Pulling the pitch stick back ("up") must lower CH2, which is
+            # what makes INAV command nose-up.  Hence the extra inversion.
+            inverted = (delta < 0) != invert
+            detected.append((axis, inverted))
             print(f"  -> axis {axis}, {'reversed' if inverted else 'normal'}")
 
         knob = _detect_knob(pad)
@@ -1650,7 +1653,7 @@ def cmd_setup(no_write: bool = False, restart: bool = False) -> int:
         return 130
 
     axes = []
-    for channel, (label, _name, _direction), (axis, inverted) in zip(
+    for channel, (label, _name, _direction, _invert), (axis, inverted) in zip(
         range(1, 5), sticks, detected
     ):
         axes.append(
@@ -1717,7 +1720,7 @@ def cmd_setup(no_write: bool = False, restart: bool = False) -> int:
     print("\n=== result ===")
     print(f"device: {pad.name}  axes={pad.num_axes} buttons={pad.num_buttons}")
     print(f"{'channel':8} {'axis/button':12} direction")
-    for channel, (label, _name, _direction), (axis, inverted) in zip(
+    for channel, (label, _name, _direction, _invert), (axis, inverted) in zip(
         range(1, 5), sticks, detected
     ):
         print(f"CH{channel:<6} axis {axis:<7} {'reversed' if inverted else 'normal'}")

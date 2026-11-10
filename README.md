@@ -221,6 +221,9 @@ python scripts\hid2msp.py --keys     # 不接 SITL，直接看键盘通道
 `config\hid2msp_inav.json.bak`，并打印每个通道最终使用的 `axis`/`button`
 和 `reverse` 方向。
 
+> Pitch 的方向判定和其它通道相反：向导按"拉杆（pitch up）时 CH2 应变低"来判断，
+> 所以副翼向右、油门向上、偏航向右都是"打满时 PWM 变大"，pitch 则是"拉满时 PWM 变小"。
+
 ```powershell
 .\hidctl.cmd setup --no-write    # 只看结果，不写文件
 .\hidctl.cmd setup --restart     # 写完自动重启 bridge
