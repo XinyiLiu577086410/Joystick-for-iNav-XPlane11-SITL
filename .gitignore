@@ -1,5 +1,6 @@
 # Upstream source repositories kept locally as references; not part of this repo.
 /3rdparty/inav/
+/3rdparty/inav-fork/
 /3rdparty/inav-configurator/
 /3rdparty/INAV-X-Plane-HITL/
 
