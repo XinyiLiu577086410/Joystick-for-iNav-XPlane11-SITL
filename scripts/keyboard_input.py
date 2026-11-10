@@ -99,6 +99,11 @@ _KEYCODES: Dict[str, int] = {
     "left_option": 58,
     "option_l": 58,
     "alt_l": 58,
+    "left_command": 55,
+    "command_l": 55,
+    "cmd_l": 55,
+    "right_command": 54,
+    "right_cmd": 54,
     "left_shift": 56,
     "shift_l": 56,
     "lshift": 56,
@@ -116,7 +121,7 @@ DEFAULT_KEYS: Dict[str, str] = {
     "yaw_right": "e",
     "arm": "space",
     "throttle_up": "left_shift",
-    "throttle_down": "fn",
+    "throttle_down": "left_control",
     "mode_1": "1",
     "mode_2": "2",
     "mode_3": "3",
@@ -248,7 +253,9 @@ class KeyboardInput:
         code = self.keycodes.get(action)
         pressed = bool(self.lib.CGEventSourceKeyState(1, code)) if code is not None else False
         if action == "throttle_down" and (flags & FN_FLAG):
-            pressed = True
+            configured = str(self.config.keys.get("throttle_down", "")).lower()
+            if configured in ("fn", "function"):
+                pressed = True
         return pressed
 
     def _states(self) -> Dict[str, bool]:

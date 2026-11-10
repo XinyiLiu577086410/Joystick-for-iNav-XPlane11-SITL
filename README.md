@@ -290,7 +290,7 @@ HID 手柄拔掉时，`keyboard.source = auto` 会自动改用键盘，不需要
 | `1`–`6` | 六段模式：ANGLE / HORIZON / MANUAL / CRUISE / POSHOLD / RTH |
 | `Space` | 按一下切换解锁/上锁 |
 | `Left Shift` | 按住增加油门 |
-| `Left Fn` | 按住减少油门 |
+| `Left Ctrl` | 按住减少油门 |
 
 行为：
 
@@ -317,7 +317,7 @@ HID 手柄拔掉时，`keyboard.source = auto` 会自动改用键盘，不需要
     "yaw_right": "e",
     "arm": "space",
     "throttle_up": "left_shift",
-    "throttle_down": "fn",
+    "throttle_down": "left_control",
     "mode_1": "1",
     "mode_2": "2",
     "mode_3": "3",
@@ -336,7 +336,68 @@ HID 手柄拔掉时，`keyboard.source = auto` 会自动改用键盘，不需要
 | `hid` | 强制手柄；没有手柄则启动失败 |
 | `keyboard` | 强制键盘，即使手柄已连接 |
 
-键名使用 macOS 虚拟键名，例如 `a`、`1`、`space`、`left_shift`、`left_option`、`left_control`、`fn`。配置错误会被 `./hidctl config check` 报出来。
+### 4.4 如何配置 keyboard map
+
+键位在 `config/hid2msp_inav.json` 的 `keyboard.keys` 里，格式是：
+
+```json
+"动作名": "macOS 键名"
+```
+
+可配置的动作：
+
+| 动作名 | 作用 |
+|---|---|
+| `roll_left` / `roll_right` | Roll 左 / 右 |
+| `pitch_up` / `pitch_down` | Pitch 上 / 下 |
+| `yaw_left` / `yaw_right` | Yaw 左 / 右 |
+| `arm` | 按一下切换解锁/上锁 |
+| `throttle_up` | 按住增加油门 |
+| `throttle_down` | 按住减少油门 |
+| `mode_1` … `mode_6` | 六段模式 |
+
+键名使用 macOS 键名，例如：
+
+```text
+a ... z, 0 ... 9, space, left_shift, left_control, left_option, left_command
+```
+
+`left_control` 就是左侧 Control 键，也就是现在的默认减小油门键。
+
+#### 例：改成 IJKL + 数字键
+
+```json
+"keys": {
+  "pitch_up": "i",
+  "pitch_down": "k",
+  "roll_left": "j",
+  "roll_right": "l",
+  "yaw_left": "u",
+  "yaw_right": "o",
+  "arm": "space",
+  "throttle_up": "left_shift",
+  "throttle_down": "left_control",
+  "mode_1": "1",
+  "mode_2": "2",
+  "mode_3": "3",
+  "mode_4": "4",
+  "mode_5": "5",
+  "mode_6": "6"
+}
+```
+
+#### 改完后的流程
+
+```bash
+./hidctl config check       # 校验键名、重复键、通道
+./hidctl restart bridge     # 让新键位生效
+./hidctl start --follow     # 看启动日志
+python3 scripts/hid2msp.py --keys   # 不接 SITL，直接看按键通道
+```
+
+- 不要给两个动作配同一个键，`config check` 会报错。
+- 如果键名写错，`config check` 会指出具体动作。
+- `axis_rate` / `throttle_rate` 控制轴和油门的最大变化速度（PWM/秒），觉得太灵敏可以调小。
 
 #### macOS 权限
 
@@ -390,15 +451,34 @@ python3 scripts/hid2msp.py --keys
    ```
    如果 Terminal 里能读到键、DSH 里不能，就用 Terminal 运行 `./hidctl start`，或把 DeepSeek Harness 加入输入监控。
 
-#### Fn 键说明
+#### Left Ctrl / Fn / Option
 
-macOS 的 `Fn` 有时不会产生普通 keycode；代码会额外检查 `kCGEventFlagMaskSecondaryFn`。如果仍然检测不到，把配置改成更可靠的键：
+默认减小油门是：
+
+```json
+"throttle_down": "left_control"
+```
+
+左侧 Control 在 macOS 上稳定可读，推荐使用。
+
+如果一定要用 `Fn`：
+
+```json
+"throttle_down": "fn"
+```
+
+代码会额外检查 `kCGEventFlagMaskSecondaryFn`，但 macOS 的 Fn 有时不产生普通 keycode，可能无效。也可以改成：
 
 ```json
 "throttle_down": "left_option"
 ```
 
-或 `"left_control"`，然后 `./hidctl restart bridge`。
+改完执行：
+
+```bash
+./hidctl config check
+./hidctl restart bridge
+```
 
 ---
 
@@ -884,7 +964,7 @@ config/INAV_SITL_MINIMAL_NODEFAULTS.txt
 | `SUPPORTED OSD TYPE NOT FOUND` | 没有 MSP DisplayPort/HD OSD | UART4 设为 `MSP DisplayPort`，OSD video `AVATAR`，OSD feature 打开 |
 | `unable to arm no rc link` / `FS` | 手柄桥没运行，5762 没有 MSP 帧 | 启动 `./hidctl start bridge`；用 `./hidctl status` 确认 5762 |
 | 键盘完全没反应 | macOS 没给辅助功能/输入监控权限 | 给 Terminal/Python 授权；`./hidctl doctor`；`python3 scripts/hid2msp.py --keys` |
-| Fn 减少油门无效 | macOS Fn 不产生普通 keycode | 把 `keyboard.keys.throttle_down` 改成 `left_option` 或 `left_control`，再 `./hidctl restart bridge` |
+| 减小油门键无效 | 键名不对，或 Fn 不产生 keycode | 用默认 `left_control`；或改 `left_option`，再 `./hidctl restart bridge` |
 | 只有 3 个模式 | 旧版用 SWC 做 2×3，SWC 没真正改变 CH6 | 当前版本已改成旋钮直接 6 档；确认 CH8 是否 1000/1200/…/2000 |
 | Pitch 反向 | `reverse` 方向不对 | 改 `config/hid2msp_inav.json` 里 CH2 的 `reverse`，执行 `./hidctl restart bridge` |
 | 启动桥就自动解锁 | SWB 在高位 | 先拨 SWB 低位，确认 CH7=1000 |

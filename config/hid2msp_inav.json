@@ -131,7 +131,7 @@
       "yaw_right": "e",
       "arm": "space",
       "throttle_up": "left_shift",
-      "throttle_down": "fn",
+      "throttle_down": "left_control",
       "mode_1": "1",
       "mode_2": "2",
       "mode_3": "3",
