@@ -643,6 +643,8 @@ rm -f logs/sitl.log logs/bridge.log
 
 `stop sitl` 只停 SITL，不停 bridge；bridge 会进入 `waiting` 状态并重试。
 
+`stop` / `restart` 默认也会打印结果（停了哪个 pid、最终状态）；脚本里不想看输出就加 `--quiet`。
+
 ### 6.6 重置状态（不是 X-Plane 重置游戏）
 
 #### A. 软重置 SITL（推荐）

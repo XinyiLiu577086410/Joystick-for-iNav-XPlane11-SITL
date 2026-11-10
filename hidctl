@@ -370,23 +370,34 @@ def cmd_start(component: str, verbose: bool = True) -> int:
     return rc
 
 
-def cmd_stop(component: str) -> int:
-    if component == "sitl":
-        return stop_component("sitl")
-    if component == "bridge":
-        return stop_component("bridge")
-    return stop_all()
+def cmd_stop(component: str, verbose: bool = True) -> int:
+    names = ["bridge", "sitl"] if component == "all" else [component]
+    for name in names:
+        running, pid = component_running(name)
+        stop_component(name)
+        if verbose:
+            if running and pid is not None:
+                print(f"{name}: stopped (pid {pid})")
+            else:
+                print(f"{name}: not running")
+    return 0
 
 
-def cmd_restart(component: str) -> int:
+def cmd_restart(component: str, verbose: bool = True) -> int:
     if component == "sitl":
-        stop_component("sitl")
-        return start_sitl()
+        rc = cmd_stop("sitl", verbose)
+        if rc != 0:
+            return rc
+        return cmd_start("sitl", verbose)
     if component == "bridge":
-        stop_component("bridge")
-        return start_bridge()
-    stop_all()
-    return start_all()
+        rc = cmd_stop("bridge", verbose)
+        if rc != 0:
+            return rc
+        return cmd_start("bridge", verbose)
+    rc = cmd_stop("all", verbose)
+    if rc != 0:
+        return rc
+    return cmd_start("all", verbose)
 
 
 # ---------------------------------------------------------------------------
@@ -941,22 +952,25 @@ def build_parser() -> argparse.ArgumentParser:
             choices=("all", "sitl", "bridge"),
             help="component to manage (default: all)",
         )
-        if name == "start":
-            sp.add_argument(
-                "-v",
-                "--verbose",
-                dest="verbose",
-                action="store_true",
-                default=True,
-                help="print resulting status and log paths (default)",
-            )
-            sp.add_argument(
-                "-q",
-                "--quiet",
-                dest="verbose",
-                action="store_false",
-                help="suppress startup status output",
-            )
+        sp.add_argument(
+            "-v",
+            "--verbose",
+            dest="verbose",
+            action="store_true",
+            default=True,
+            help=(
+                "print status/log paths (default)"
+                if name == "start"
+                else "print results (default)"
+            ),
+        )
+        sp.add_argument(
+            "-q",
+            "--quiet",
+            dest="verbose",
+            action="store_false",
+            help="suppress output",
+        )
 
     sp = sub.add_parser("status")
     sp.add_argument("--json", action="store_true")
@@ -1013,9 +1027,9 @@ def main(argv: list[str] | None = None) -> int:
         if command == "start":
             return cmd_start(args.component, verbose=args.verbose)
         if command == "stop":
-            return cmd_stop(args.component)
+            return cmd_stop(args.component, verbose=args.verbose)
         if command == "restart":
-            return cmd_restart(args.component)
+            return cmd_restart(args.component, verbose=args.verbose)
         if command == "status":
             return cmd_status(args.json)
         if command == "logs":
