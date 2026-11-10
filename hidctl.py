@@ -38,6 +38,8 @@ BACKUPS = RUNTIME / "backups"
 EEPROM = RUNTIME / "plane.bin"
 HID_CONFIG = CONFIG / "hid2msp_inav.json"
 BRIDGE = ROOT / "scripts" / "hid2msp.py"
+LOGPUMP = ROOT / "scripts" / "logpump.py"
+HIDCTL_LOG = LOGS / "hidctl.log"
 
 PORTS = (5760, 5761, 5762, 5763)
 COMPONENTS = ("sitl", "bridge")
@@ -206,6 +208,17 @@ def now() -> str:
 
 def err(message: str) -> None:
     print(f"hidctl: {message}", file=sys.stderr)
+    audit(f"ERROR {message}")
+
+
+def audit(message: str) -> None:
+    """Append one timestamped line to logs\\hidctl.log (never raises)."""
+    try:
+        LOGS.mkdir(parents=True, exist_ok=True)
+        with HIDCTL_LOG.open("a", encoding="utf-8") as fh:
+            fh.write(f"{now()} [{os.getpid()}] {message}\n")
+    except OSError:
+        pass
 
 
 def display_path(path: Path) -> str:
@@ -241,7 +254,7 @@ def append_log_header(component: str, action: str) -> None:
 def append_log_line(component: str, line: str) -> None:
     ensure_dirs()
     with log_file(component).open("ab") as fh:
-        fh.write((line.rstrip("\n") + "\n").encode())
+        fh.write(f"{now()} {line.rstrip(chr(10))}\n".encode())
 
 
 def log_size(component: str) -> int:
@@ -478,42 +491,67 @@ def find_sitl() -> Path | None:
 # ---------------------------------------------------------------------------
 # Process lifecycle
 # ---------------------------------------------------------------------------
-def spawn(component: str, cmd: list[str]) -> subprocess.Popen | None:
+def spawn(component: str, cmd: list[str]) -> int | None:
+    """Start cmd under the log pump; return the child PID or None.
+
+    The pump keeps running after hidctl exits, timestamps every output line,
+    records the child's exit code, and writes/removes run\\<component>.pid.
+    """
     ensure_dirs()
     log = log_file(component)
     append_log_header(component, "start")
-    with log.open("ab") as fh:
-        fh.write(("$ " + " ".join(cmd) + "\n").encode())
-        fh.flush()
-        # Detach from the console: a console app started from a terminal dies
-        # with STATUS_CONTROL_C_EXIT when that terminal/console closes, which
-        # looks like SITL "randomly dying".  A failed CREATE_BREAKAWAY_FROM_JOB
-        # attempt leaves a half-built Popen whose finalizer prints a spurious
-        # WinError 6 at exit, so only use flags that are known to work here.
-        attempts = (DETACHED_PROCESS, CREATE_NEW_PROCESS_GROUP)
-        proc = None
-        last_error: OSError | None = None
-        for flags in attempts:
-            try:
-                proc = subprocess.Popen(
-                    cmd,
-                    cwd=str(ROOT),
-                    stdin=subprocess.DEVNULL,
-                    stdout=fh,
-                    stderr=subprocess.STDOUT,
-                    creationflags=flags,
-                    close_fds=True,
-                )
-                break
-            except OSError as exc:
-                last_error = exc
-                continue
-        if proc is None:
-            fh.write(f"spawn failed: {last_error}\n".encode())
-            return None
-    write_pid(component, proc.pid)
-    append_log_line(component, f"pid={proc.pid}")
-    return proc
+    append_log_line(component, "$ " + " ".join(cmd))
+
+    pid_path = pid_file(component)
+    try:
+        pid_path.unlink()
+    except FileNotFoundError:
+        pass
+
+    pump_cmd = [
+        sys.executable,
+        "-u",
+        str(LOGPUMP),
+        "--log",
+        str(log),
+        "--pidfile",
+        str(pid_path),
+        "--cwd",
+        str(ROOT),
+        "--",
+        *cmd,
+    ]
+    try:
+        pump = subprocess.Popen(
+            pump_cmd,
+            cwd=str(ROOT),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=DETACHED_PROCESS,
+            close_fds=True,
+        )
+    except OSError as exc:
+        append_log_line(component, f"spawn failed: {exc}")
+        audit(f"spawn {component} failed: {exc}")
+        return None
+
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        pid = read_pid(component)
+        if pid is not None:
+            if pid_exists(pid):
+                append_log_line(component, f"pid={pid}")
+                audit(f"spawn {component} pid={pid} pump={pump.pid}")
+                return pid
+            break
+        if pump.poll() is not None:
+            break
+        time.sleep(0.1)
+
+    append_log_line(component, "spawn failed (no pid file)")
+    audit(f"spawn {component} failed (pump exited)")
+    return None
 
 
 def _terminate(pid: int) -> bool:
@@ -540,6 +578,7 @@ def stop_component(component: str) -> int:
         return 0
 
     append_log_header(component, "stop")
+    audit(f"stop {component} pid={pid}")
     # Ask politely first: CTRL_BREAK to the child's process group.  Without a
     # console there is nothing to signal, so go straight to taskkill.
     graceful = False
@@ -600,19 +639,20 @@ def start_sitl(wait: bool = True) -> int:
         return 1
 
     RUNTIME.mkdir(parents=True, exist_ok=True)
-    proc = spawn("sitl", [str(sitl), f"--path={EEPROM}"])
-    if proc is None:
+    pid = spawn("sitl", [str(sitl), f"--path={EEPROM}"])
+    if pid is None:
         err("failed to start SITL; see logs\\sitl.log")
         return 1
 
-    if wait and not wait_ports((5760, 5761), 20.0, proc.pid):
+    if wait and not wait_ports((5760, 5761), 20.0, pid):
         err("SITL did not open 5760/5761; see logs\\sitl.log")
         stop_component("sitl")
         return 1
-    if proc.poll() is not None:
+    if not pid_exists(pid):
         err("SITL exited during startup; see logs\\sitl.log")
         remove_pid("sitl")
         return 1
+    audit(f"start sitl ok pid={pid}")
     return 0
 
 
@@ -647,7 +687,7 @@ def start_bridge(wait: bool = True) -> int:
         err(f"bridge script not found: {BRIDGE}")
         return 1
 
-    proc = spawn(
+    pid = spawn(
         "bridge",
         [
             sys.executable,
@@ -660,16 +700,17 @@ def start_bridge(wait: bool = True) -> int:
             "-v",
         ],
     )
-    if proc is None:
+    if pid is None:
         err("failed to start bridge; see logs\\bridge.log")
         return 1
 
     if wait:
         time.sleep(2.0)
-        if proc.poll() is not None:
+        if not pid_exists(pid):
             err("bridge exited immediately; see logs\\bridge.log")
             remove_pid("bridge")
             return 1
+    audit(f"start bridge ok pid={pid}")
     return 0
 
 
@@ -1078,7 +1119,7 @@ def tail_lines(path: Path, count: int) -> list[str]:
 
 
 def cmd_logs(component: str, follow: bool, lines: int) -> int:
-    names = ["sitl", "bridge"] if component == "all" else [component]
+    names = ["sitl", "bridge", "hidctl"] if component == "all" else [component]
     paths = [log_file(name) for name in names]
 
     if follow:
@@ -1156,6 +1197,7 @@ def backup_eeprom(label: str | None = None, quiet: bool = False) -> Path | None:
         if running:
             err("warning: live eeprom snapshot; avoid saving config at the same time")
     shutil.copyfile(EEPROM, target)
+    audit(f"backup eeprom {target}")
     return target
 
 
@@ -1219,6 +1261,7 @@ def cmd_restore(file: str, yes: bool, no_start: bool, no_backup: bool) -> int:
     shutil.copyfile(source, EEPROM)
 
     print(f"restored: {source} -> {EEPROM}")
+    audit(f"restore eeprom {source} -> {EEPROM}")
     if previous:
         print(f"previous eeprom saved: {previous}")
 
@@ -1443,6 +1486,7 @@ def cmd_invert(channel: int, restart: bool = False) -> int:
         f"CH{channel}: axis {target.get('axis')} reverse="
         f"{str(target['reverse']).lower()}"
     )
+    audit(f"invert CH{channel} axis={target.get('axis')} reverse={target['reverse']}")
 
     errors = validate_config(HID_CONFIG)
     if errors:
@@ -1532,6 +1576,8 @@ def cmd_config_load(file: str | None, port: int, save: bool) -> int:
     if not commands:
         err(f"no commands in {path}")
         return 1
+
+    audit(f"config load file={path} port={port} save={save} commands={len(commands)}")
 
     print(f"loading {len(commands)} CLI commands from {display_path(path)} into 127.0.0.1:{port}")
     errors, count = _cli_session(port, commands, save)
@@ -2043,7 +2089,7 @@ def build_parser() -> argparse.ArgumentParser:
         "component",
         nargs="?",
         default="all",
-        choices=("all", "sitl", "bridge"),
+        choices=("all", "sitl", "bridge", "hidctl"),
     )
     sp.add_argument("-f", "--follow", action="store_true")
     sp.add_argument("-n", "--lines", type=int, default=50)
@@ -2095,6 +2141,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     command = args.command
+    audit("run " + " ".join(sys.argv))
 
     mutating = command in {
         "start",
@@ -2158,4 +2205,6 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    _exit_code = main()
+    audit(f"exit rc={_exit_code}")
+    raise SystemExit(_exit_code)

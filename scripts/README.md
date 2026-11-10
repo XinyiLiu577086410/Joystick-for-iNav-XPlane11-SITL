@@ -5,6 +5,7 @@
 | 文件 | 用途 |
 |---|---|
 | `hid2msp.py` | HID 手柄/遥控器或键盘 → MSP `SET_RAW_RC` 桥 |
+| `logpump.py` | 给 SITL/bridge 输出加时间戳、记录退出码、维护 PID 文件 |
 | `keyboard_input.py` | Windows 全局键盘读取（`GetAsyncKeyState`）、键位映射、键盘通道生成 |
 | `calibrate_hid.py` | 交互式标定 AETR 轴，结果写入 `config/calibration.json` |
 

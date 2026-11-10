@@ -370,6 +370,32 @@ PID 文件现在记录 **PID + 进程创建时间**（`run\sitl.pid` 两行）�
 
 清理 `stray` 进程：在任务管理器里结束，或 `taskkill /PID <pid> /T /F`。
 
+### 6.3 日志格式
+
+所有组件日志现在**逐行带时间戳**，由 [scripts/logpump.py](scripts/logpump.py) 管道写入：
+
+```text
+2026-11-10 23:36:10 [SOCKET] [::ffff:127.0.0.1]:5927 connected to UART1
+```
+
+- SITL/bridge 的 stdout 由 logpump 加时间戳后写进 `logs\sitl.log`、`logs\bridge.log`；
+- 进程退出时会追加一行退出码，例如：
+
+  ```text
+  2026-11-10 23:44:01 ===== inav_SITL.exe exited code=2048 (0x00000800) =====
+  ```
+
+  这条是排查“莫名其妙死掉”的关键，不再需要外部监控；
+- logpump 同时维护 `run\sitl.pid` / `run\bridge.pid`，进程退出时删除。
+
+`logs\hidctl.log` 是 **hidctl 自己的操作日志**：每条命令、spawn/stop、`config load`、
+`setup`、`invert`、`backup/restore/reset` 和错误都会记录时间戳：
+
+```powershell
+.\hidctl.cmd logs hidctl -n 20
+.\hidctl.cmd logs all -f
+```
+
 ---
 
 ## 7. 与 main（macOS）分支的差异
