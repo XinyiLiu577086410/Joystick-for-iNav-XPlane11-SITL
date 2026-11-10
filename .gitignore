@@ -13,3 +13,9 @@ __pycache__/
 *.log
 .DS_Store
 *.bak
+
+# Local dependency folder (optional pygame install for the Windows branch).
+/.deps/
+/.venv/
+/.tmp/
+/.wheelhouse/

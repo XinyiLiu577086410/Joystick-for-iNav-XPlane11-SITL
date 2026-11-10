@@ -1,6 +1,9 @@
 # macOS 上 X-Plane 11 + INAV SITL + HID 手柄当 Receiver：调研与实施方案
 
-> 当前实际使用的安装、启动、通道映射和 Configurator 配置见 [README.md](../README.md)；本文是方案调研与历史设计记录。
+> 本文件是 **macOS 分支（main）** 的调研与设计记录，在 `windows` 分支上仅作参考；
+> Windows 的实现与操作说明见 [README.md](../README.md)。
+
+> 当前实际使用的安装、启动、通道映射和 Configurator 配置见 [docs/README-macos.md](README-macos.md)；本文是方案调研与历史设计记录。
 
 > 适用环境：macOS（Intel / Apple Silicon）、X-Plane 11.55、INAV Configurator 9.x、INAV SITL 9.0.0  
 > 结论先行：**可行**。先走方案 A（零代码，30–60 分钟能飞）；需要“手柄像 MSP 接收机、16 通道、按键做模式”时走方案 B；只有必须验证 INAV 自身 elevon/V-tail 混控时，才需要方案 C 的自定义舵面桥。

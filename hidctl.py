@@ -1,26 +1,33 @@
 #!/usr/bin/env python3
-"""hidctl — manage the INAV SITL + HID-to-MSP bridge for this project.
+"""hidctl (Windows) - manage INAV SITL and the HID-to-MSP bridge.
 
-X-Plane and INAV Configurator are external; this tool never launches or stops them.
+This file is the Windows implementation.  The macOS implementation lives on
+the ``main`` branch; the two are intentionally separate.
+
+X-Plane and INAV Configurator are external tools: this script never launches
+or stops them, it only inspects them (read-only) for ``status``/``doctor``.
 """
 
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import os
-import plistlib
 import re
 import shutil
-import signal
 import socket
 import subprocess
 import sys
 import time
+from ctypes import wintypes
 from datetime import datetime
 from pathlib import Path
 
-VERSION = "1.0.0"
+if sys.platform != "win32":
+    sys.exit("hidctl.py is the Windows implementation; use the main branch on macOS.")
+
+VERSION = "2.0.0"
 
 ROOT = Path(__file__).resolve().parent
 RUN = ROOT / "run"
@@ -31,12 +38,6 @@ BACKUPS = RUNTIME / "backups"
 EEPROM = RUNTIME / "plane.bin"
 HID_CONFIG = CONFIG / "hid2msp_inav.json"
 BRIDGE = ROOT / "scripts" / "hid2msp.py"
-SITL = Path(
-    os.environ.get(
-        "HIDCTL_SITL",
-        "/Applications/INAV Configurator 9.0.0.app/Contents/Resources/sitl/macos/inav_SITL",
-    )
-)
 
 PORTS = (5760, 5761, 5762, 5763)
 COMPONENTS = ("sitl", "bridge")
@@ -44,11 +45,109 @@ PWM_MIN, PWM_MAX = 1000, 2000
 KINDS = {"bipolar", "unipolar", "tri", "binary", "multi"}
 
 sys.path.insert(0, str(ROOT / "scripts"))
+if (ROOT / ".deps").is_dir():
+    sys.path.insert(0, str(ROOT / ".deps"))
 from keyboard_input import (  # noqa: E402
     DEFAULT_KEYS,
-    input_monitoring_trusted,
+    input_available,
     resolve_keycode,
 )
+
+# ---------------------------------------------------------------------------
+# Win32 helpers
+# ---------------------------------------------------------------------------
+kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+PROCESS_TERMINATE = 0x0001
+SYNCHRONIZE = 0x00100000
+STILL_ACTIVE = 259
+CREATE_NEW_PROCESS_GROUP = 0x00000200
+CREATE_NO_WINDOW = 0x08000000
+CTRL_BREAK_EVENT = 1
+
+kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+kernel32.OpenProcess.restype = wintypes.HANDLE
+kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+kernel32.CloseHandle.restype = wintypes.BOOL
+kernel32.QueryFullProcessImageNameW.argtypes = [
+    wintypes.HANDLE,
+    wintypes.DWORD,
+    wintypes.LPWSTR,
+    ctypes.POINTER(wintypes.DWORD),
+]
+kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+kernel32.GenerateConsoleCtrlEvent.argtypes = [wintypes.DWORD, wintypes.DWORD]
+kernel32.GenerateConsoleCtrlEvent.restype = wintypes.BOOL
+kernel32.GetConsoleWindow.argtypes = []
+kernel32.GetConsoleWindow.restype = wintypes.HWND
+kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+kernel32.TerminateProcess.restype = wintypes.BOOL
+
+
+def _open_process(pid: int, access: int) -> int | None:
+    handle = kernel32.OpenProcess(access, False, pid)
+    return handle or None
+
+
+def pid_exists(pid: int) -> bool:
+    """True if the PID is alive.  Never uses os.kill (which terminates on Windows)."""
+    if pid <= 0:
+        return False
+    handle = _open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE)
+    if not handle:
+        return False
+    try:
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return code.value == STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def process_name(pid: int) -> str:
+    handle = _open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION)
+    if not handle:
+        return ""
+    try:
+        size = wintypes.DWORD(4096)
+        buffer = ctypes.create_unicode_buffer(size.value)
+        if kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+            return Path(buffer.value).name
+        return ""
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def process_path(pid: int) -> Path | None:
+    handle = _open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION)
+    if not handle:
+        return None
+    try:
+        size = wintypes.DWORD(4096)
+        buffer = ctypes.create_unicode_buffer(size.value)
+        if kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+            return Path(buffer.value)
+        return None
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def pid_is_component(component: str, pid: int) -> bool:
+    if not pid_exists(pid):
+        return False
+    name = process_name(pid).lower()
+    if not name:
+        # Cannot inspect the process; trust our PID file.
+        return True
+    if component == "sitl":
+        return name == "inav_sitl.exe"
+    if component == "bridge":
+        return name.startswith("python")
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -63,11 +162,12 @@ def err(message: str) -> None:
 
 
 def display_path(path: Path) -> str:
-    """Prefer ./relative when the path is inside the current directory."""
+    """Prefer .\\relative when the path is inside the current directory."""
     try:
-        rel = path.resolve().relative_to(Path.cwd().resolve())
-        text = str(rel)
-        return "." if text == "." else f"./{text}"
+        rel = os.path.relpath(path, Path.cwd())
+        if rel.startswith(".."):
+            return str(path)
+        return rel if rel.startswith(".") else f".{os.sep}{rel}"
     except (OSError, ValueError):
         return str(path)
 
@@ -134,40 +234,6 @@ def remove_pid(component: str) -> None:
         pass
 
 
-def process_name(pid: int) -> str:
-    """Best-effort process name via lsof (ps is blocked by the sandbox here)."""
-    try:
-        result = subprocess.run(
-            ["lsof", "-nP", "-p", str(pid), "-F", "c"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-        for line in result.stdout.splitlines():
-            if line.startswith("c"):
-                return line[1:].strip()
-    except (OSError, subprocess.SubprocessError):
-        pass
-    return ""
-
-
-def pid_is_component(component: str, pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-
-    name = process_name(pid)
-    if not name:
-        # Cannot inspect the process (sandbox/permissions); trust our PID file.
-        return True
-    if component == "sitl":
-        return "inav_SITL" in name
-    if component == "bridge":
-        return "Python" in name or "python" in name
-    return False
-
-
 def component_running(component: str) -> tuple[bool, int | None]:
     pid = read_pid(component)
     if pid is None:
@@ -191,34 +257,146 @@ def wait_ports(ports: tuple[int, ...], timeout: float, pid: int | None = None) -
     while time.monotonic() < deadline:
         if all(port_open(port) for port in ports):
             return True
-        if pid is not None:
-            try:
-                os.kill(pid, 0)
-            except OSError:
-                return False
-        time.sleep(0.1)
+        if pid is not None and not pid_exists(pid):
+            return False
+        time.sleep(0.2)
     return False
 
 
-def bridge_connected(pid: int) -> bool | None:
-    """Return True/False if lsof can tell, None if lsof is unavailable."""
+def _hidden_run(cmd: list[str], timeout: float = 8.0) -> str:
     try:
         result = subprocess.run(
-            [
-                "lsof",
-                "-nP",
-                "-p",
-                str(pid),
-                "-iTCP:5762",
-                "-sTCP:ESTABLISHED",
-            ],
+            cmd,
             capture_output=True,
             text=True,
-            timeout=2,
+            timeout=timeout,
+            creationflags=CREATE_NO_WINDOW,
         )
-        return bool(result.stdout.strip())
+        return result.stdout
     except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def netstat_rows() -> list[tuple[str, str, str, int]] | None:
+    """Return (local, foreign, state, pid) rows, or None if netstat failed."""
+    output = _hidden_run(["netstat", "-ano", "-p", "tcp"])
+    if not output:
         return None
+    rows: list[tuple[str, str, str, int]] = []
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) < 5 or parts[0].upper() != "TCP":
+            continue
+        try:
+            rows.append((parts[1], parts[2], parts[3].upper(), int(parts[4])))
+        except (ValueError, IndexError):
+            continue
+    return rows
+
+
+def port_has_established(port: int) -> bool:
+    rows = netstat_rows()
+    if rows is None:
+        return False
+    suffix = f":{port}"
+    return any(
+        state == "ESTABLISHED" and (local.endswith(suffix) or foreign.endswith(suffix))
+        for local, foreign, state, _pid in rows
+    )
+
+
+def bridge_connected(pid: int) -> bool | None:
+    rows = netstat_rows()
+    if rows is None:
+        return None
+    return any(
+        state == "ESTABLISHED" and row_pid == pid and foreign.endswith(":5762")
+        for _local, foreign, state, row_pid in rows
+    )
+
+
+def _running_pids(image_name: str) -> list[int]:
+    output = _hidden_run(
+        ["tasklist", "/FI", f"IMAGENAME eq {image_name}", "/FO", "CSV", "/NH"],
+        timeout=6.0,
+    )
+    pids: list[int] = []
+    for line in output.splitlines():
+        line = line.strip()
+        if not line.startswith('"'):
+            continue
+        parts = [item.strip('"') for item in line.split('","')]
+        if len(parts) >= 2 and parts[0].lower() == image_name.lower():
+            try:
+                pids.append(int(parts[1]))
+            except ValueError:
+                pass
+    return pids
+
+
+# ---------------------------------------------------------------------------
+# SITL discovery
+# ---------------------------------------------------------------------------
+def _sitl_candidates() -> list[Path]:
+    found: list[Path] = []
+
+    def add(path: Path) -> None:
+        try:
+            if path.is_file() and path not in found:
+                found.append(path)
+        except OSError:
+            pass
+
+    env = os.environ.get("HIDCTL_SITL")
+    if env:
+        add(Path(env).expanduser())
+
+    roots: list[Path] = []
+    for variable in ("ProgramFiles", "ProgramFiles(x86)"):
+        value = os.environ.get(variable)
+        if value:
+            roots.append(Path(value))
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        roots.append(Path(local) / "Programs")
+
+    for root in roots:
+        try:
+            entries = [d for d in root.iterdir() if d.is_dir() and d.name.upper().startswith("INAV")]
+        except OSError:
+            continue
+        for entry in entries:
+            add(entry / "resources" / "sitl" / "windows" / "inav_SITL.exe")
+            add(entry / "resources" / "app" / "resources" / "sitl" / "windows" / "inav_SITL.exe")
+            for app_dir in entry.glob("app-*"):
+                add(app_dir / "resources" / "sitl" / "windows" / "inav_SITL.exe")
+            for child in entry.glob("*"):
+                if child.is_dir():
+                    add(child / "resources" / "sitl" / "windows" / "inav_SITL.exe")
+
+    which = shutil.which("inav_SITL.exe")
+    if which:
+        add(Path(which))
+    return found
+
+
+def _path_version(path: Path) -> tuple[int, int, int]:
+    best = (0, 0, 0)
+    for match in re.findall(r"(\d+)\.(\d+)\.(\d+)", str(path)):
+        best = max(best, (int(match[0]), int(match[1]), int(match[2])))
+    return best
+
+
+def find_sitl() -> Path | None:
+    env = os.environ.get("HIDCTL_SITL")
+    if env:
+        path = Path(env).expanduser()
+        if path.is_file():
+            return path
+    candidates = _sitl_candidates()
+    if not candidates:
+        return None
+    return max(candidates, key=_path_version)
 
 
 # ---------------------------------------------------------------------------
@@ -238,7 +416,7 @@ def spawn(component: str, cmd: list[str]) -> subprocess.Popen | None:
                 stdin=subprocess.DEVNULL,
                 stdout=fh,
                 stderr=subprocess.STDOUT,
-                start_new_session=True,
+                creationflags=CREATE_NEW_PROCESS_GROUP,
                 close_fds=True,
             )
         except OSError as exc:
@@ -247,6 +425,20 @@ def spawn(component: str, cmd: list[str]) -> subprocess.Popen | None:
     write_pid(component, proc.pid)
     append_log_line(component, f"pid={proc.pid}")
     return proc
+
+
+def _terminate(pid: int) -> bool:
+    handle = _open_process(pid, PROCESS_TERMINATE)
+    if not handle:
+        return False
+    try:
+        return bool(kernel32.TerminateProcess(handle, 1))
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _taskkill(pid: int) -> None:
+    _hidden_run(["taskkill", "/PID", str(pid), "/T", "/F"], timeout=10.0)
 
 
 def stop_component(component: str) -> int:
@@ -259,43 +451,45 @@ def stop_component(component: str) -> int:
         return 0
 
     append_log_header(component, "stop")
-    try:
-        os.killpg(os.getpgid(pid), signal.SIGTERM)
-    except OSError:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except OSError:
-            remove_pid(component)
-            return 0
+    # Ask politely first: CTRL_BREAK to the child's process group.  Without a
+    # console there is nothing to signal, so go straight to taskkill.
+    graceful = False
+    if kernel32.GetConsoleWindow():
+        graceful = bool(kernel32.GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid))
 
-    deadline = time.monotonic() + 5.0
+    deadline = time.monotonic() + (5.0 if graceful else 0.5)
     while time.monotonic() < deadline:
-        try:
-            os.kill(pid, 0)
-        except OSError:
+        if not pid_exists(pid):
             remove_pid(component)
             return 0
         time.sleep(0.1)
 
-    try:
-        os.killpg(os.getpgid(pid), signal.SIGKILL)
-    except OSError:
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except OSError:
-            pass
-    time.sleep(0.2)
+    _taskkill(pid)
+    deadline = time.monotonic() + 3.0
+    while time.monotonic() < deadline:
+        if not pid_exists(pid):
+            remove_pid(component)
+            return 0
+        time.sleep(0.1)
+
+    if pid_exists(pid):
+        _terminate(pid)
     remove_pid(component)
     return 0
 
 
 def start_sitl(wait: bool = True) -> int:
     ensure_dirs()
-    running, pid = component_running("sitl")
+    running, _ = component_running("sitl")
     if running:
         return 0
-    if not SITL.is_file() or not os.access(SITL, os.X_OK):
-        err(f"SITL not found or not executable: {SITL}")
+
+    sitl = find_sitl()
+    if sitl is None:
+        err("SITL not found; install INAV Configurator or set HIDCTL_SITL")
+        return 1
+    if not sitl.is_file():
+        err(f"SITL not found: {sitl}")
         return 1
 
     busy = [port for port in PORTS if port_open(port)]
@@ -308,17 +502,17 @@ def start_sitl(wait: bool = True) -> int:
         return 1
 
     RUNTIME.mkdir(parents=True, exist_ok=True)
-    proc = spawn("sitl", [str(SITL), f"--path={EEPROM}"])
+    proc = spawn("sitl", [str(sitl), f"--path={EEPROM}"])
     if proc is None:
-        err("failed to start SITL; see logs/sitl.log")
+        err("failed to start SITL; see logs\\sitl.log")
         return 1
 
-    if wait and not wait_ports((5760, 5761), 10.0, proc.pid):
-        err("SITL did not open 5760/5761; see logs/sitl.log")
+    if wait and not wait_ports((5760, 5761), 20.0, proc.pid):
+        err("SITL did not open 5760/5761; see logs\\sitl.log")
         stop_component("sitl")
         return 1
     if proc.poll() is not None:
-        err("SITL exited during startup; see logs/sitl.log")
+        err("SITL exited during startup; see logs\\sitl.log")
         remove_pid("sitl")
         return 1
     return 0
@@ -333,6 +527,11 @@ def start_bridge(wait: bool = True) -> int:
     sitl_running, _ = component_running("sitl")
     if not sitl_running:
         err("warning: SITL is not running; bridge will keep retrying 127.0.0.1:5762")
+    elif not port_open(5762):
+        err(
+            "warning: 5762 is closed; SITL UART3 is not MSP yet. "
+            "Load config\\INAV_SITL_MINIMAL_NODEFAULTS.txt in Configurator and save."
+        )
 
     if not HID_CONFIG.is_file():
         err(f"HID config not found: {HID_CONFIG}")
@@ -355,13 +554,13 @@ def start_bridge(wait: bool = True) -> int:
         ],
     )
     if proc is None:
-        err("failed to start bridge; see logs/bridge.log")
+        err("failed to start bridge; see logs\\bridge.log")
         return 1
 
     if wait:
-        time.sleep(1.5)
+        time.sleep(2.0)
         if proc.poll() is not None:
-            err("bridge exited immediately; see logs/bridge.log")
+            err("bridge exited immediately; see logs\\bridge.log")
             remove_pid("bridge")
             return 1
     return 0
@@ -420,132 +619,158 @@ def cmd_stop(component: str, verbose: bool = True) -> int:
     return 0
 
 
-def cmd_restart(component: str, verbose: bool = True, follow: bool = False) -> int:
+def cmd_restart(component: str, verbose: bool = True) -> int:
     if component == "sitl":
         rc = cmd_stop("sitl", verbose)
         if rc != 0:
             return rc
-        return cmd_start("sitl", verbose, follow)
+        return cmd_start("sitl", verbose, False)
     if component == "bridge":
         rc = cmd_stop("bridge", verbose)
         if rc != 0:
             return rc
-        return cmd_start("bridge", verbose, follow)
+        return cmd_start("bridge", verbose, False)
     rc = cmd_stop("all", verbose)
     if rc != 0:
         return rc
-    return cmd_start("all", verbose, follow)
+    return cmd_start("all", verbose, False)
 
 
 # ---------------------------------------------------------------------------
-# X-Plane detection (external; never managed)
+# X-Plane / HITL detection (external; never managed)
 # ---------------------------------------------------------------------------
-def _xplane_app_from_path(path: Path) -> Path | None:
+def _steam_roots() -> list[Path]:
+    roots: list[Path] = []
     try:
-        if path.name.endswith(".app"):
-            return path if (path / "Contents" / "Info.plist").is_file() else None
-        for name in ("X-Plane.app", "X-Plane 12.app", "X-Plane 11.app"):
-            app = path / name
-            if (app / "Contents" / "Info.plist").is_file():
-                return app
-    except OSError:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
+            value, _ = winreg.QueryValueEx(key, "SteamPath")
+            roots.append(Path(str(value)))
+    except (OSError, ImportError, ValueError):
         pass
-    return None
-
-
-def _xplane_meta(app: Path | None) -> tuple[str | None, str | None]:
-    if app is None:
-        return None, None
-    try:
-        with (app / "Contents" / "Info.plist").open("rb") as fh:
-            data = plistlib.load(fh)
-        version = str(data.get("CFBundleShortVersionString") or "").strip() or None
-        name = str(data.get("CFBundleName") or app.stem).strip() or None
-        return version, name
-    except (OSError, plistlib.InvalidFileException, ValueError):
-        return None, app.stem if app else None
+    return roots
 
 
 def _xplane_candidates() -> list[Path]:
-    home = Path.home()
-    raw = [
-        os.environ.get("XPLANE_PATH"),
-        os.environ.get("XPLANE_APP"),
-        str(home / "Library/Application Support/Steam/steamapps/common/X-Plane 11"),
-        str(home / "Library/Application Support/Steam/steamapps/common/X-Plane 12"),
-        str(home / "Applications/X-Plane 11.app"),
-        str(home / "Applications/X-Plane 12.app"),
-        "/Applications/X-Plane 11.app",
-        "/Applications/X-Plane 12.app",
-    ]
+    candidates: list[Path] = []
+    for variable in ("XPLANE_PATH", "XPLANE_APP"):
+        value = os.environ.get(variable)
+        if value:
+            candidates.append(Path(value))
+    for root in _steam_roots():
+        candidates.append(root / "steamapps" / "common" / "X-Plane 11")
+        candidates.append(root / "steamapps" / "common" / "X-Plane 12")
+    for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+        if base:
+            candidates.append(Path(base) / "X-Plane 11")
+            candidates.append(Path(base) / "X-Plane 12")
+    candidates.append(Path("C:/X-Plane 11"))
+    candidates.append(Path("C:/X-Plane 12"))
+
     result: list[Path] = []
     seen: set[str] = set()
-    for item in raw:
-        if not item:
-            continue
-        path = Path(item).expanduser()
-        key = str(path)
-        if key not in seen and path.exists():
+    for item in candidates:
+        try:
+            key = str(item.resolve())
+        except OSError:
+            key = str(item)
+        if key not in seen and item.exists():
             seen.add(key)
-            result.append(path)
+            result.append(item)
     return result
 
 
-def _xplane_app_from_pid(pid: int) -> Path | None:
+def _file_version(path: Path) -> str | None:
     try:
-        result = subprocess.run(
-            ["lsof", "-nP", "-p", str(pid), "-F", "n"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-        for line in result.stdout.splitlines():
-            if not line.startswith("n"):
-                continue
-            path = Path(line[1:])
-            if path.name == "X-Plane" and path.parent.name == "MacOS":
-                return path.parents[2]
-    except (OSError, subprocess.SubprocessError):
-        pass
-    return None
+        version = ctypes.WinDLL("version", use_last_error=True)
+        version.GetFileVersionInfoSizeW.argtypes = [
+            wintypes.LPCWSTR,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        version.GetFileVersionInfoSizeW.restype = wintypes.DWORD
+        version.GetFileVersionInfoW.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            ctypes.c_void_p,
+        ]
+        version.GetFileVersionInfoW.restype = wintypes.BOOL
+        version.VerQueryValueW.argtypes = [
+            ctypes.c_void_p,
+            wintypes.LPCWSTR,
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.POINTER(wintypes.UINT),
+        ]
+        version.VerQueryValueW.restype = wintypes.BOOL
+
+        size = version.GetFileVersionInfoSizeW(str(path), None)
+        if not size:
+            return None
+        buffer = ctypes.create_string_buffer(size)
+        if not version.GetFileVersionInfoW(str(path), 0, size, buffer):
+            return None
+
+        pointer = ctypes.c_void_p()
+        length = wintypes.UINT()
+        if not version.VerQueryValueW(
+            buffer, "\\VarFileInfo\\Translation", ctypes.byref(pointer), ctypes.byref(length)
+        ):
+            return None
+        words = ctypes.cast(pointer, ctypes.POINTER(wintypes.WORD))
+        language, codepage = words[0], words[1]
+
+        query = f"\\StringFileInfo\\{language:04x}{codepage:04x}\\FileVersion"
+        pointer = ctypes.c_void_p()
+        length = wintypes.UINT()
+        if not version.VerQueryValueW(
+            buffer, query, ctypes.byref(pointer), ctypes.byref(length)
+        ):
+            return None
+        return str(ctypes.wstring_at(pointer.value)).strip() or None
+    except (OSError, ValueError):
+        return None
+
+
+def _log_version(root: Path) -> str | None:
+    try:
+        with (root / "Log.txt").open("r", encoding="utf-8", errors="replace") as fh:
+            first = fh.readline()
+    except OSError:
+        return None
+    match = re.search(r"X-Plane\s+(\S+)", first)
+    return match.group(1) if match else None
 
 
 def xplane_info() -> dict:
-    pid: int | None = None
-    try:
-        result = subprocess.run(
-            ["pgrep", "-f", "/X-Plane.app/Contents/MacOS/X-Plane"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-        for line in result.stdout.splitlines():
-            if line.strip().isdigit():
-                pid = int(line.strip())
-                break
-    except (OSError, subprocess.SubprocessError):
-        pass
+    pids = _running_pids("X-Plane.exe")
+    pid = pids[0] if pids else None
 
-    app = _xplane_app_from_pid(pid) if pid is not None else None
-    if app is None:
+    exe: Path | None = None
+    if pid is not None:
+        exe = process_path(pid)
+    if exe is None:
         for candidate in _xplane_candidates():
-            app = _xplane_app_from_path(candidate)
-            if app is not None:
+            if candidate.is_file() and candidate.name.lower() == "x-plane.exe":
+                exe = candidate
+                break
+            if candidate.is_dir() and (candidate / "X-Plane.exe").is_file():
+                exe = candidate / "X-Plane.exe"
                 break
 
-    version, name = _xplane_meta(app)
-    root = None
-    if app is not None and app.name == "X-Plane.app":
-        root = str(app.parent)
+    version = _file_version(exe) if exe is not None else None
+    root = exe.parent if exe is not None else None
+    if version is None and root is not None:
+        version = _log_version(root)
+
     return {
         "external": True,
         "managed": False,
         "running": pid is not None,
         "pid": pid,
         "version": version,
-        "name": name,
-        "path": str(app) if app is not None else None,
-        "root": root,
+        "path": str(exe) if exe is not None else None,
+        "root": str(root) if root is not None else None,
     }
 
 
@@ -554,45 +779,28 @@ def _hitl_candidates(xp: dict) -> list[Path]:
     if xp.get("root"):
         roots.append(Path(xp["root"]))
     for candidate in _xplane_candidates():
-        if candidate.is_dir() and not candidate.name.endswith(".app"):
+        if candidate.is_dir() and candidate.name.lower() != "x-plane.exe":
             roots.append(candidate)
 
+    patterns = (
+        "Aircraft/Extra Aircraft/NK_FPVSurfwing/plugins/INAV-X-Plane-HITL/64/win.xpl",
+        "Aircraft/Extra Aircraft/*/plugins/INAV-X-Plane-HITL/64/win.xpl",
+        "Aircraft/*/plugins/INAV-X-Plane-HITL/64/win.xpl",
+    )
     found: list[Path] = []
     seen: set[str] = set()
     for root in roots:
-        direct = (
-            root
-            / "Aircraft/Extra Aircraft/NK_FPVSurfwing/plugins"
-            / "INAV-X-Plane-HITL/64/mac.xpl"
-        )
-        candidates = [direct]
-        try:
-            candidates.extend(
-                root.glob(
-                    "Aircraft/Extra Aircraft/*/plugins/INAV-X-Plane-HITL/64/mac.xpl"
-                )
-            )
-        except OSError:
-            pass
-        for path in candidates:
-            key = str(path)
-            if key not in seen and path.is_file():
-                seen.add(key)
-                found.append(path)
+        for pattern in patterns:
+            try:
+                matches = list(root.glob(pattern))
+            except OSError:
+                matches = []
+            for path in matches:
+                key = str(path)
+                if key not in seen and path.is_file():
+                    seen.add(key)
+                    found.append(path)
     return found
-
-
-def _hitl_connected() -> bool:
-    try:
-        result = subprocess.run(
-            ["lsof", "-nP", "-iTCP:5761", "-sTCP:ESTABLISHED"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-        return bool(result.stdout.strip())
-    except (OSError, subprocess.SubprocessError):
-        return False
 
 
 def _hitl_version(path: Path | None) -> str | None:
@@ -618,7 +826,7 @@ def hitl_info(xp: dict | None = None) -> dict:
         "installed": path is not None,
         "version": _hitl_version(path),
         "path": str(path) if path is not None else None,
-        "connected": _hitl_connected(),
+        "connected": port_has_established(5761),
     }
 
 
@@ -661,11 +869,14 @@ def status_data() -> dict:
         ),
     }
     xp = xplane_info()
+    sitl = find_sitl()
     return {
+        "platform": "windows",
         "sitl": {
             "running": sitl_running,
             "pid": sitl_pid,
             "ports": {str(port): port_open(port) for port in PORTS},
+            "binary": str(sitl) if sitl else None,
         },
         "bridge": {
             "running": bridge_running,
@@ -731,7 +942,7 @@ def cmd_status(as_json: bool) -> int:
 # ---------------------------------------------------------------------------
 def tail_lines(path: Path, count: int) -> list[str]:
     try:
-        with path.open("r", errors="replace") as fh:
+        with path.open("r", encoding="utf-8", errors="replace") as fh:
             lines = fh.readlines()
     except OSError:
         return []
@@ -743,15 +954,36 @@ def cmd_logs(component: str, follow: bool, lines: int) -> int:
     paths = [log_file(name) for name in names]
 
     if follow:
-        existing = [str(path) for path in paths if path.is_file()]
+        existing = [path for path in paths if path.is_file()]
         if not existing:
             err("no log files yet")
             return 1
-        cmd = ["tail", "-n", str(lines), "-f", *existing]
+        for path in existing:
+            print(f"==> {path} <==")
+            for line in tail_lines(path, lines):
+                print(line.rstrip("\n"))
+        handles = []
+        for path in existing:
+            handle = path.open("r", encoding="utf-8", errors="replace")
+            handle.seek(0, os.SEEK_END)
+            handles.append(handle)
+        print("(following; Ctrl-C to stop)")
         try:
-            subprocess.run(cmd, check=False)
+            while True:
+                moved = False
+                for handle in handles:
+                    chunk = handle.read()
+                    if chunk:
+                        sys.stdout.write(chunk)
+                        sys.stdout.flush()
+                        moved = True
+                if not moved:
+                    time.sleep(0.3)
         except KeyboardInterrupt:
-            return 0
+            print()
+        finally:
+            for handle in handles:
+                handle.close()
         return 0
 
     missing = False
@@ -890,8 +1122,11 @@ def cmd_reset(no_backup: bool, yes: bool) -> int:
         print(f"backup: {backup}")
     else:
         print("backup: none")
-    print("next: Configurator -> TCP 127.0.0.1:5760 -> CLI -> paste config/INAV_SITL_MINIMAL_NODEFAULTS.txt -> save")
-    print("then: ./hidctl start bridge")
+    print(
+        "next: Configurator -> TCP 127.0.0.1:5760 -> CLI -> paste "
+        "config\\INAV_SITL_MINIMAL_NODEFAULTS.txt -> save"
+    )
+    print("then: hidctl.cmd start bridge")
     return rc
 
 
@@ -914,7 +1149,7 @@ def validate_config(path: Path) -> list[str]:
         return [f"config not found: {path}"]
 
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         return [f"cannot parse JSON: {exc}"]
 
@@ -1032,7 +1267,8 @@ def validate_config(path: Path) -> list[str]:
                     lowered = str(key_name).lower()
                     if lowered in used_keys and used_keys[lowered] != action:
                         errors.append(
-                            f"keyboard.keys.{action}: key {key_name!r} already used by {used_keys[lowered]}"
+                            f"keyboard.keys.{action}: key {key_name!r} already used by "
+                            f"{used_keys[lowered]}"
                         )
                     used_keys[lowered] = action
 
@@ -1051,7 +1287,7 @@ def cmd_config_check() -> int:
 
 def cmd_config_show() -> int:
     print(f"root        {display_path(ROOT)}")
-    print(f"sitl        {display_path(SITL)}")
+    print(f"sitl        {display_path(find_sitl()) if find_sitl() else 'not found'}")
     print(f"eeprom      {display_path(EEPROM)}")
     print(f"hid config  {display_path(HID_CONFIG)}")
     print(f"backups     {display_path(BACKUPS)}")
@@ -1066,25 +1302,21 @@ def cmd_config_show() -> int:
 def cmd_doctor() -> int:
     checks: list[tuple[str, bool, str]] = []
 
-    checks.append(("SITL binary", SITL.is_file() and os.access(SITL, os.X_OK), str(SITL)))
+    sitl = find_sitl()
+    checks.append(("SITL binary", sitl is not None, str(sitl) if sitl else "not found"))
+
     xp = xplane_info()
-    checks.append(
-        (
-            "X-Plane",
-            xp["path"] is not None,
-            _xplane_label(xp),
-        )
-    )
+    checks.append(("X-Plane", xp["path"] is not None, _xplane_label(xp)))
     hitl = hitl_info(xp)
     checks.append(("HITL plugin", hitl["installed"], _hitl_label(hitl)))
     checks.append(("Python", sys.version_info >= (3, 10), sys.version.split()[0]))
-    checks.append(("hid2msp.py", BRIDGE.is_file(), str(BRIDGE)))
+    checks.append(("bridge script", BRIDGE.is_file(), str(BRIDGE)))
 
     keyboard_enabled = True
     keyboard_source = "auto"
     count = 0
     try:
-        raw = json.loads(HID_CONFIG.read_text())
+        raw = json.loads(HID_CONFIG.read_text(encoding="utf-8"))
         keyboard_enabled = bool((raw.get("keyboard") or {}).get("enabled", True))
         keyboard_source = str((raw.get("keyboard") or {}).get("source", "auto")).lower()
     except Exception:
@@ -1111,24 +1343,20 @@ def cmd_doctor() -> int:
         keyboard_source == "keyboard" or (keyboard_source == "auto" and count == 0)
     )
     if keyboard_required:
-        trusted = input_monitoring_trusted()
         checks.append(
             (
                 "keyboard input",
-                trusted is True,
-                (
-                    f"grant Input Monitoring to Python ({sys.executable}) "
-                    "and Terminal/DeepSeek Harness, then restart bridge"
-                )
-                if trusted is not True
-                else "trusted",
+                input_available(),
+                "GetAsyncKeyState ready" if input_available() else "user32 unavailable",
             )
         )
 
     errors = validate_config(HID_CONFIG)
     checks.append(("HID config", not errors, f"{len(errors)} error(s)" if errors else "ok"))
 
-    eeprom_ok = EEPROM.is_file() and EEPROM.stat().st_size == 32768
+    eeprom_ok = (
+        EEPROM.is_file() and EEPROM.stat().st_size >= 8192 and EEPROM.stat().st_size % 4096 == 0
+    )
     checks.append(
         (
             "eeprom",
@@ -1159,7 +1387,7 @@ def acquire_lock() -> bool:
     ensure_dirs()
     lock = RUN / "hidctl.lock"
     try:
-        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         with os.fdopen(fd, "w") as fh:
             fh.write(f"{os.getpid()}\n{now()}\n")
         return True
@@ -1174,7 +1402,7 @@ def acquire_lock() -> bool:
             except OSError:
                 pass
             return acquire_lock()
-        err("another hidctl operation is in progress (run/hidctl.lock)")
+        err("another hidctl operation is in progress (run\\hidctl.lock)")
         return False
 
 
@@ -1191,7 +1419,7 @@ def release_lock() -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hidctl",
-        description="Manage INAV SITL and the HID-to-MSP bridge. X-Plane is external.",
+        description="Manage INAV SITL and the HID-to-MSP bridge on Windows. X-Plane is external.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -1210,11 +1438,7 @@ def build_parser() -> argparse.ArgumentParser:
             dest="verbose",
             action="store_true",
             default=True,
-            help=(
-                "print status/log paths (default)"
-                if name == "start"
-                else "print results (default)"
-            ),
+            help="print status/log paths (default)",
         )
         sp.add_argument(
             "-q",
@@ -1288,25 +1512,31 @@ def main(argv: list[str] | None = None) -> int:
         if command == "stop":
             return cmd_stop(args.component, verbose=args.verbose)
         if command == "restart":
-            return cmd_restart(args.component, verbose=args.verbose, follow=False)
+            return cmd_restart(args.component, verbose=args.verbose)
         if command == "status":
             return cmd_status(args.json)
         if command == "logs":
             return cmd_logs(args.component, args.follow, args.lines)
         if command == "backup":
+            if args.backup_target != "eeprom":
+                return 2
             return cmd_backup(args.name)
         if command == "backups":
             return cmd_backups()
         if command == "restore":
+            if args.restore_target != "eeprom":
+                return 2
             return cmd_restore(args.file, args.yes, args.no_start, args.no_backup)
         if command == "reset":
+            if args.reset_target != "eeprom":
+                return 2
             return cmd_reset(args.no_backup, args.yes)
         if command == "config":
             return cmd_config_check() if args.config_command == "check" else cmd_config_show()
         if command == "doctor":
             return cmd_doctor()
         if command == "version":
-            print(f"hidctl {VERSION}")
+            print(f"hidctl {VERSION} (windows)")
             return 0
         return 2
     except KeyboardInterrupt:

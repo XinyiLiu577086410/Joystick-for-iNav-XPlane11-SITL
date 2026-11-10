@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-hid2msp.py - HID gamepad -> INAV SITL MSP RX bridge (macOS/Linux/Windows)
+hid2msp.py (Windows) - HID gamepad -> INAV SITL MSP RX bridge
 
 Sends MSP_SET_RAW_RC (200) frames over TCP to an INAV SITL UART that is
 configured as MSP.  INAV then treats the gamepad exactly like an MSP receiver.
+The macOS implementation lives on the main branch.
 
 Typical SITL setup:
     inav_SITL --path=plane.bin --tcpbaseport=5760
@@ -11,18 +12,20 @@ Typical SITL setup:
     # UART3 = 5762 (this bridge, set to MSP in Configurator/CLI)
 
 Run:
-    python3 hid2msp.py --list
-    python3 hid2msp.py --port 5762
-    python3 hid2msp.py --port 5762 --test
-    python3 hid2msp.py --port 5762 --once
-    python3 hid2msp.py --keys
+    python hid2msp.py --list
+    python hid2msp.py --port 5762
+    python hid2msp.py --port 5762 --test
+    python hid2msp.py --port 5762 --once
+    python hid2msp.py --keys
 
 Input is selected by config/keyboard.source:
   auto      = gamepad if present, otherwise keyboard
   hid       = force gamepad
   keyboard  = force keyboard
 
-pygame is only needed for gamepad mode; keyboard mode uses CoreGraphics.
+pygame is only needed for gamepad mode; keyboard mode uses GetAsyncKeyState.
+If a local ``.deps`` folder exists next to the repository, it is added to
+``sys.path`` so pygame can live there without a global install.
 """
 
 from __future__ import annotations
@@ -44,6 +47,10 @@ from keyboard_input import (
     KeyboardInput,
     monitor_keyboard,
 )
+
+_LOCAL_DEPS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".deps")
+if os.path.isdir(_LOCAL_DEPS) and _LOCAL_DEPS not in sys.path:
+    sys.path.insert(0, _LOCAL_DEPS)
 
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 
@@ -401,8 +408,18 @@ def synthetic_channels(t: float) -> List[int]:
 def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
     link = MspLink(cfg.host, cfg.port)
     if not link.connect():
-        print(f"cannot connect to {cfg.host}:{cfg.port}: {link.last_error}", file=sys.stderr)
-        return 2
+        if once:
+            print(f"cannot connect to {cfg.host}:{cfg.port}: {link.last_error}", file=sys.stderr)
+            return 2
+        print(
+            f"cannot connect to {cfg.host}:{cfg.port}: {link.last_error}; "
+            "retrying (Ctrl-C to stop)",
+            file=sys.stderr,
+            flush=True,
+        )
+        while not link.connect():
+            time.sleep(1.0)
+        print(f"connected to {cfg.host}:{cfg.port}", flush=True)
 
     gamepad: Optional[Gamepad] = None
     keyboard: Optional[KeyboardInput] = None
