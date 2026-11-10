@@ -2,16 +2,16 @@
   "host": "127.0.0.1",
   "port": 5762,
   "rate_hz": 50,
-  "notes": "Calibrated: Roll=axis5, Pitch=axis0, Throttle=axis1, Yaw=axis4, Knob=axis3. CH8=knob 6 modes. SWC=button3 -> CH6 NAV WP. SWB=button2 -> CH7 ARM. CH9=2000 NAV LAUNCH. Keyboard (Windows): auto fallback when no HID; WASD + QE + 1-6 + Space + Left Shift/Left Ctrl.",
+  "notes": "Calibrated with hidctl setup on Windows: RC Simulator - XTR+G2+FMS Controller.",
   "channel_map": {
-    "1": "Roll (axis5)",
+    "1": "Roll (axis4)",
     "2": "Pitch (axis0)",
     "3": "Throttle (axis1)",
-    "4": "Yaw (axis4)",
-    "5": "Knob zone (axis3, 3-zone raw indicator)",
-    "6": "SWC NAV WP (button3; high=WP on)",
+    "4": "Yaw (axis3)",
+    "5": "Knob zone (axis5)",
+    "6": "SWC NAV WP (button3)",
     "7": "SWB ARM (button2)",
-    "8": "6-position mode from knob (axis3)",
+    "8": "6-position mode (axis5)",
     "9": "NAV LAUNCH constant 2000"
   },
   "mode_table": [
@@ -42,7 +42,7 @@
   ],
   "axes": [
     {
-      "axis": 5,
+      "axis": 4,
       "channel": 1,
       "kind": "bipolar",
       "trim": 1500,
@@ -65,11 +65,11 @@
       "kind": "bipolar",
       "trim": 1500,
       "reverse": false,
-      "deadband": 0.0,
+      "deadband": 0.03,
       "expo": 0.0
     },
     {
-      "axis": 4,
+      "axis": 3,
       "channel": 4,
       "kind": "bipolar",
       "trim": 1500,
@@ -78,7 +78,7 @@
       "expo": 0.0
     },
     {
-      "axis": 3,
+      "axis": 5,
       "channel": 8,
       "kind": "multi",
       "levels": 6,
@@ -89,13 +89,15 @@
         1600,
         1800,
         2000
-      ]
+      ],
+      "reverse": false
     },
     {
-      "axis": 3,
+      "axis": 5,
       "channel": 5,
       "kind": "tri",
-      "threshold": 0.0
+      "threshold": 0.0,
+      "reverse": false
     }
   ],
   "buttons": [

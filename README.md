@@ -229,6 +229,14 @@ python scripts\hid2msp.py --keys     # 不接 SITL，直接看键盘通道
 某个通道检测不到明显变化时会重试 3 次；请确保只动向导要求的那一个摇杆/开关。
 中途 Ctrl-C 不会写入任何内容。
 
+如果向导完成后发现某个通道方向反了，不用重跑向导，直接翻转该通道：
+
+```powershell
+.\hidctl.cmd invert 2 --restart     # 翻转 CH2 Pitch
+```
+
+（`invert` 会切换该通道的 `reverse`，可加 `--restart` 立即让桥生效。）
+
 > 跑向导前建议先 `.\hidctl.cmd stop bridge`：向导会要求拨动 SWB，
 > 而桥如果还在运行会把 SWB 当作解锁信号。向导结束后再
 > `.\hidctl.cmd start bridge`（或加 `--restart`）。

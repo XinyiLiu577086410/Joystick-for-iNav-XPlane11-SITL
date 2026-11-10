@@ -1296,6 +1296,39 @@ def cmd_config_show() -> int:
     return 0
 
 
+def cmd_invert(channel: int, restart: bool = False) -> int:
+    data = json.loads(HID_CONFIG.read_text(encoding="utf-8"))
+    target = None
+    for item in data.get("axes", []):
+        if item.get("channel") == channel:
+            target = item
+            break
+    if target is None:
+        err(f"CH{channel} is not an axis channel in {display_path(HID_CONFIG)}")
+        return 1
+
+    target["reverse"] = not bool(target.get("reverse", False))
+    HID_CONFIG.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    print(
+        f"CH{channel}: axis {target.get('axis')} reverse="
+        f"{str(target['reverse']).lower()}"
+    )
+
+    errors = validate_config(HID_CONFIG)
+    if errors:
+        for item in errors:
+            err(item)
+        return 1
+
+    if restart:
+        stop_component("bridge")
+        return start_bridge()
+    print("next: .\\hidctl.cmd restart bridge")
+    return 0
+
+
 def _cli_commands(path: Path) -> list[str]:
     commands: list[str] = []
     with path.open("r", encoding="utf-8", errors="replace") as fh:
@@ -1920,6 +1953,10 @@ def build_parser() -> argparse.ArgumentParser:
     setup.add_argument("--no-write", action="store_true", help="show the result without writing the config")
     setup.add_argument("--restart", action="store_true", help="restart the bridge after writing")
 
+    invert = sub.add_parser("invert", help="toggle reverse for one RC channel")
+    invert.add_argument("channel", type=int, help="RC channel number (1-16)")
+    invert.add_argument("--restart", action="store_true", help="restart the bridge after writing")
+
     sub.add_parser("version")
     return parser
 
@@ -1928,9 +1965,16 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     command = args.command
 
-    mutating = command in {"start", "stop", "restart", "backup", "restore", "reset", "setup"} or (
-        command == "config" and getattr(args, "config_command", None) == "load"
-    )
+    mutating = command in {
+        "start",
+        "stop",
+        "restart",
+        "backup",
+        "restore",
+        "reset",
+        "setup",
+        "invert",
+    } or (command == "config" and getattr(args, "config_command", None) == "load")
     if mutating and not acquire_lock():
         return 1
     try:
@@ -1966,6 +2010,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_doctor()
         if command == "setup":
             return cmd_setup(args.no_write, args.restart)
+        if command == "invert":
+            return cmd_invert(args.channel, args.restart)
         if command == "version":
             print(f"hidctl {VERSION} (windows)")
             return 0
