@@ -1398,6 +1398,261 @@ def cmd_config_load(file: str | None, port: int, save: bool) -> int:
 
 
 # ---------------------------------------------------------------------------
+# HID setup wizard
+# ---------------------------------------------------------------------------
+SETUP_BASELINE_SECONDS = 0.6
+SETUP_STICK_SECONDS = 2.0
+SETUP_KNOB_SECONDS = 1.2
+SETUP_BUTTON_SECONDS = 0.8
+SETUP_MIN_DELTA = 0.35
+
+
+def _ask(message: str) -> None:
+    try:
+        input(message)
+    except EOFError:
+        raise KeyboardInterrupt
+
+
+def _measure(pad, seconds: float) -> tuple[list[float], list[bool]]:
+    """Average axes and any-pressed buttons over a sampling window."""
+    sums = [0.0] * pad.num_axes
+    pressed = [False] * pad.num_buttons
+    count = 0
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        axes, buttons = pad.poll()
+        for index, value in enumerate(axes):
+            sums[index] += value
+        for index, value in enumerate(buttons):
+            pressed[index] = pressed[index] or bool(value)
+        count += 1
+        time.sleep(0.02)
+    means = [value / max(1, count) for value in sums]
+    return means, pressed
+
+
+def _detect_stick(pad, label: str, direction: str) -> tuple[int, bool] | None:
+    for attempt in range(3):
+        _ask(f"\n{label}: center the stick, then press Enter")
+        base, _ = _measure(pad, SETUP_BASELINE_SECONDS)
+        _ask(
+            f"Move {label} {direction} to maximum and hold it, "
+            f"then press Enter (sampling {SETUP_STICK_SECONDS:.0f}s)"
+        )
+        during, _ = _measure(pad, SETUP_STICK_SECONDS)
+        deltas = [during[index] - base[index] for index in range(pad.num_axes)]
+        axis = max(range(pad.num_axes), key=lambda index: abs(deltas[index]))
+        if abs(deltas[axis]) >= SETUP_MIN_DELTA:
+            return axis, deltas[axis] < 0
+        print(f"  no clear movement (max {deltas[axis]:+.2f}), attempt {attempt + 1}/3 failed")
+    return None
+
+
+def _detect_knob(pad) -> tuple[int, bool] | None:
+    for attempt in range(3):
+        _ask("\nMode knob: turn it to the lowest position, then press Enter")
+        low, _ = _measure(pad, SETUP_KNOB_SECONDS)
+        _ask("Turn the mode knob to the highest position, then press Enter")
+        high, _ = _measure(pad, SETUP_KNOB_SECONDS)
+        deltas = [high[index] - low[index] for index in range(pad.num_axes)]
+        axis = max(range(pad.num_axes), key=lambda index: abs(deltas[index]))
+        if abs(deltas[axis]) >= SETUP_MIN_DELTA:
+            return axis, deltas[axis] < 0
+        print(f"  knob did not move enough (max {deltas[axis]:+.2f}), attempt {attempt + 1}/3 failed")
+    return None
+
+
+def _detect_switch(pad, label: str) -> tuple[int, bool] | None:
+    for attempt in range(3):
+        _ask(f"\n{label}: set the switch LOW, then press Enter")
+        _, low = _measure(pad, SETUP_BUTTON_SECONDS)
+        _ask(f"Set {label} HIGH, then press Enter")
+        _, high = _measure(pad, SETUP_BUTTON_SECONDS)
+        changed = [index for index in range(pad.num_buttons) if low[index] != high[index]]
+        if len(changed) == 1:
+            button = changed[0]
+            return button, not high[button]
+        if len(changed) > 1:
+            print(f"  several buttons changed at once {changed}; move one switch only")
+        else:
+            print(f"  no button change detected, attempt {attempt + 1}/3 failed")
+    return None
+
+
+def cmd_setup(no_write: bool = False, restart: bool = False) -> int:
+    try:
+        import hid2msp
+    except Exception as exc:  # noqa: BLE001
+        err(f"cannot import hid2msp: {exc}")
+        return 1
+
+    try:
+        pad = hid2msp.Gamepad()
+    except Exception as exc:  # noqa: BLE001
+        err(f"no gamepad: {exc}")
+        err("install pygame and connect a HID controller, or use keyboard mode")
+        return 1
+
+    print("=== HID channel setup ===")
+    print(f"device: {pad.name}  axes={pad.num_axes} buttons={pad.num_buttons}")
+    print("Follow each prompt, move the requested control, then press Enter to sample.")
+    print("Ctrl-C cancels without writing anything.\n")
+
+    sticks = [
+        ("CH1 Roll", "roll (aileron)", "right"),
+        ("CH2 Pitch", "pitch", "up (pull)"),
+        ("CH3 Throttle", "throttle", "up to maximum"),
+        ("CH4 Yaw", "yaw (rudder)", "right"),
+    ]
+
+    detected: list[tuple[int, bool]] = []
+    try:
+        for label, name, direction in sticks:
+            result = _detect_stick(pad, f"{label} {name}", direction)
+            if result is None:
+                err(f"{label}: detection failed, aborting")
+                return 1
+            detected.append(result)
+            axis, inverted = result
+            print(f"  -> axis {axis}, {'reversed' if inverted else 'normal'}")
+
+        knob = _detect_knob(pad)
+        if knob is None:
+            err("mode knob: detection failed, aborting")
+            return 1
+        print(f"  -> axis {knob[0]}, {'reversed' if knob[1] else 'normal'}")
+
+        swc = _detect_switch(pad, "SWC (NAV WP)")
+        if swc is None:
+            err("SWC: detection failed, aborting")
+            return 1
+        print(f"  -> button {swc[0]}")
+
+        swb = _detect_switch(pad, "SWB (ARM)")
+        if swb is None:
+            err("SWB: detection failed, aborting")
+            return 1
+        print(f"  -> button {swb[0]}")
+    except KeyboardInterrupt:
+        print("\ncancelled, nothing written")
+        return 130
+
+    axes = []
+    for channel, (label, _name, _direction), (axis, inverted) in zip(
+        range(1, 5), sticks, detected
+    ):
+        axes.append(
+            {
+                "axis": axis,
+                "channel": channel,
+                "kind": "bipolar",
+                "trim": 1500,
+                "reverse": inverted,
+                "deadband": 0.03,
+                "expo": 0.0,
+            }
+        )
+
+    axes.append(
+        {
+            "axis": knob[0],
+            "channel": 8,
+            "kind": "multi",
+            "levels": 6,
+            "values": [1000, 1200, 1400, 1600, 1800, 2000],
+            "reverse": knob[1],
+        }
+    )
+    axes.append(
+        {
+            "axis": knob[0],
+            "channel": 5,
+            "kind": "tri",
+            "threshold": 0.0,
+            "reverse": knob[1],
+        }
+    )
+
+    buttons = []
+    for channel, (button, invert), name in ((6, swc, "SWC"), (7, swb, "SWB")):
+        buttons.append(
+            {
+                "button": button,
+                "channel": channel,
+                "low": 2000 if invert else 1000,
+                "high": 1000 if invert else 2000,
+                "toggle": False,
+            }
+        )
+
+    data = json.loads(HID_CONFIG.read_text(encoding="utf-8"))
+    data["axes"] = axes
+    data["buttons"] = buttons
+    data["constants"] = {"9": 2000}
+    data["notes"] = f"Calibrated with hidctl setup on Windows: {pad.name}."
+    data["channel_map"] = {
+        "1": f"Roll (axis{detected[0][0]})",
+        "2": f"Pitch (axis{detected[1][0]})",
+        "3": f"Throttle (axis{detected[2][0]})",
+        "4": f"Yaw (axis{detected[3][0]})",
+        "5": f"Knob zone (axis{knob[0]})",
+        "6": f"SWC NAV WP (button{swc[0]})",
+        "7": f"SWB ARM (button{swb[0]})",
+        "8": f"6-position mode (axis{knob[0]})",
+        "9": "NAV LAUNCH constant 2000",
+    }
+
+    print("\n=== result ===")
+    print(f"device: {pad.name}  axes={pad.num_axes} buttons={pad.num_buttons}")
+    print(f"{'channel':8} {'axis/button':12} direction")
+    for channel, (label, _name, _direction), (axis, inverted) in zip(
+        range(1, 5), sticks, detected
+    ):
+        print(f"CH{channel:<6} axis {axis:<7} {'reversed' if inverted else 'normal'}")
+    print(f"CH8     axis {knob[0]:<7} 6 positions, {'reversed' if knob[1] else 'normal'}")
+    print(f"CH5     axis {knob[0]:<7} 3-zone indicator")
+    print(f"CH6     button {swc[0]}")
+    print(f"CH7     button {swb[0]}")
+    print("CH9     constant 2000")
+
+    if no_write:
+        print("\n--no-write: config\\hid2msp_inav.json not modified")
+        pad.close()
+        return 0
+
+    backup = HID_CONFIG.with_suffix(".json.bak")
+    try:
+        shutil.copyfile(HID_CONFIG, backup)
+        HID_CONFIG.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+    except OSError as exc:
+        err(f"cannot write {HID_CONFIG}: {exc}")
+        pad.close()
+        return 1
+
+    errors = validate_config(HID_CONFIG)
+    print(f"\nwrote {display_path(HID_CONFIG)} (backup: {display_path(backup)})")
+    if errors:
+        for item in errors:
+            err(item)
+        pad.close()
+        return 1
+
+    pad.close()
+
+    if restart:
+        print("restarting bridge ...")
+        stop_component("bridge")
+        rc = start_bridge()
+        if rc != 0:
+            return rc
+    print("next: .\\hidctl.cmd restart bridge   (or rerun with --restart)")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Doctor
 # ---------------------------------------------------------------------------
 def cmd_doctor() -> int:
@@ -1600,6 +1855,11 @@ def build_parser() -> argparse.ArgumentParser:
     config_load.add_argument("--no-save", action="store_true", help="send commands without save/reboot")
 
     sub.add_parser("doctor")
+
+    setup = sub.add_parser("setup", help="guided HID channel setup (axis, direction, switches)")
+    setup.add_argument("--no-write", action="store_true", help="show the result without writing the config")
+    setup.add_argument("--restart", action="store_true", help="restart the bridge after writing")
+
     sub.add_parser("version")
     return parser
 
@@ -1608,7 +1868,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     command = args.command
 
-    mutating = command in {"start", "stop", "restart", "backup", "restore", "reset"} or (
+    mutating = command in {"start", "stop", "restart", "backup", "restore", "reset", "setup"} or (
         command == "config" and getattr(args, "config_command", None) == "load"
     )
     if mutating and not acquire_lock():
@@ -1644,6 +1904,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_config_check() if args.config_command == "check" else cmd_config_show()
         if command == "doctor":
             return cmd_doctor()
+        if command == "setup":
+            return cmd_setup(args.no_write, args.restart)
         if command == "version":
             print(f"hidctl {VERSION} (windows)")
             return 0

@@ -197,6 +197,38 @@ python scripts\hid2msp.py --keys     # 不接 SITL，直接看键盘通道
 `source` 三种值：`auto`（有手柄用手柄，否则键盘）、`hid`（强制手柄）、
 `keyboard`（强制键盘）。
 
+### 4.2 设置向导（重新标定轴和方向）
+
+同一只手柄在 macOS 和 Windows 上 SDL 的轴编号可能不同，换机器或换手柄后建议跑一次：
+
+```powershell
+.\hidctl.cmd setup
+```
+
+向导会依次要求（每一步按 Enter 后采样约 2 秒）：
+
+| 步骤 | 操作 | 检测内容 |
+|---|---|---|
+| CH1 Roll | 回中 → 向右打满 | 轴号 + 方向 |
+| CH2 Pitch | 回中 → 向上打满 | 轴号 + 方向 |
+| CH3 Throttle | 最低 → 最高 | 轴号 + 方向 |
+| CH4 Yaw | 回中 → 向右打满 | 轴号 + 方向 |
+| CH8/CH5 | 旋钮最低档 → 最高档 | 轴号 + 六档方向 |
+| CH6 SWC | 低位 → 高位 | 按键号 + 高电平极性 |
+| CH7 SWB | 低位 → 高位 | 按键号 + 高电平极性 |
+
+结束后会更新 `config\hid2msp_inav.json`，旧文件备份为
+`config\hid2msp_inav.json.bak`，并打印每个通道最终使用的 `axis`/`button`
+和 `reverse` 方向。
+
+```powershell
+.\hidctl.cmd setup --no-write    # 只看结果，不写文件
+.\hidctl.cmd setup --restart     # 写完自动重启 bridge
+```
+
+某个通道检测不到明显变化时会重试 3 次；请确保只动向导要求的那一个摇杆/开关。
+中途 Ctrl-C 不会写入任何内容。
+
 ---
 
 ## 5. SITL 配置

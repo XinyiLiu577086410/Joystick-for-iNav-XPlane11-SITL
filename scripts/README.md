@@ -13,6 +13,7 @@
 ```powershell
 .\hidctl.cmd start              # SITL + bridge
 .\hidctl.cmd status
+.\hidctl.cmd setup              # 手柄轴/方向设置向导
 .\hidctl.cmd logs sitl -f
 .\hidctl.cmd doctor
 python scripts\hid2msp.py --keys
