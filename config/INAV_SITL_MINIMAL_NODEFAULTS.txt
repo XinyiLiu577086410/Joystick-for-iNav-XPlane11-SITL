@@ -81,11 +81,11 @@ aux 8 28 1 1950 2050
 
 # OSD [osd_layout]
 osd_layout 0 0 3 1 H
-osd_layout 0 1 45 13 V
+osd_layout 0 1 45 13 H
 osd_layout 0 2 0 0 V
 osd_layout 0 3 8 6 V
 osd_layout 0 7 25 14 V
-osd_layout 0 8 10 0 V
+osd_layout 0 8 10 0 H
 osd_layout 0 9 45 12 V
 osd_layout 0 10 3 19 H
 osd_layout 0 11 46 16 H
@@ -96,14 +96,14 @@ osd_layout 0 15 35 9 V
 osd_layout 0 16 0 18 H
 osd_layout 0 17 0 19 H
 osd_layout 0 19 46 17 H
-osd_layout 0 20 33 0 V
-osd_layout 0 21 33 1 V
+osd_layout 0 20 33 0 H
+osd_layout 0 21 33 1 H
 osd_layout 0 22 26 2 V
 osd_layout 0 23 20 2 V
 osd_layout 0 24 21 0 V
 osd_layout 0 25 34 8 V
 osd_layout 0 26 37 10 V
-osd_layout 0 27 14 10 V
+osd_layout 0 27 14 9 V
 osd_layout 0 28 3 16 V
 osd_layout 0 29 3 17 V
 osd_layout 0 30 12 4 V
@@ -116,7 +116,7 @@ osd_layout 0 39 45 8 H
 osd_layout 0 40 3 15 V
 osd_layout 0 41 37 14 V
 osd_layout 0 42 37 13 V
-osd_layout 0 46 3 12 V
+osd_layout 0 46 3 8 V
 osd_layout 0 47 3 13 H
 osd_layout 0 51 24 15 V
 osd_layout 0 54 45 15 H
@@ -124,13 +124,13 @@ osd_layout 0 67 19 18 H
 osd_layout 0 68 19 19 H
 osd_layout 0 72 26 18 H
 osd_layout 0 73 26 19 H
-osd_layout 0 85 5 8 V
+osd_layout 0 85 5 8 H
 osd_layout 0 86 45 9 H
 osd_layout 0 87 45 10 H
 osd_layout 0 96 4 6 V
-osd_layout 0 97 10 0 H
+osd_layout 0 97 37 0 V
 osd_layout 0 98 3 14 H
-osd_layout 0 100 15 11 V
+osd_layout 0 100 15 10 V
 osd_layout 0 105 3 18 H
 osd_layout 0 108 28 2 V
 osd_layout 0 109 1 1 H
@@ -142,8 +142,8 @@ osd_layout 0 120 37 11 H
 osd_layout 0 124 46 2 V
 osd_layout 0 125 4 8 H
 osd_layout 0 126 4 9 H
-osd_layout 0 127 3 11 V
-osd_layout 0 128 3 1 V
+osd_layout 0 127 3 11 H
+osd_layout 0 128 3 1 H
 osd_layout 0 129 21 3 V
 osd_layout 0 133 45 4 H
 osd_layout 0 137 46 3 V
@@ -170,7 +170,7 @@ osd_layout 0 162 13 6 H
 osd_custom_elements 0 1 0 0 0 0 0 0 0 "GPS STAT"
 
 # master
-set ins_gravity_cmss =  975.295
+set ins_gravity_cmss =  972.321
 set acc_hardware = FAKE
 set opflow_scale =  4.449
 set align_mag = CW270FLIP
@@ -181,11 +181,12 @@ set receiver_type = MSP
 set rssi_source = NONE
 set blackbox_rate_denom = 2
 set failsafe_procedure = RTH
-set failsafe_mission_delay = 3
-set align_board_pitch = -2
+set failsafe_mission_delay = -1
+set align_board_pitch = -18
 set small_angle = 180
 set applied_defaults = 1
 set gps_provider = FAKE
+set inav_allow_dead_reckoning = ON
 set inav_allow_gps_fix_estimation = ON
 set nav_wp_radius = 3000
 set nav_wp_max_safe_distance = 500
@@ -236,11 +237,9 @@ control_profile 1
 set fw_p_pitch = 33
 set fw_i_pitch = 15
 set fw_d_pitch = 17
-set fw_ff_pitch = 30
 set fw_p_roll = 35
 set fw_i_roll = 10
 set fw_d_roll = 20
-set fw_ff_roll = 30
 set fw_p_yaw = 38
 set fw_i_yaw = 15
 set fw_d_yaw = 10
@@ -250,8 +249,8 @@ set tpa_rate = 40
 set tpa_breakpoint = 1800
 set rc_expo = 30
 set rc_yaw_expo = 30
-set roll_rate = 18
-set pitch_rate = 18
+set roll_rate = 27
+set pitch_rate = 27
 set yaw_rate = 18
 set manual_rc_expo = 55
 set manual_roll_rate = 30
