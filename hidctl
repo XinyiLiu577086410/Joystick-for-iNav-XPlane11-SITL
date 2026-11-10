@@ -61,6 +61,16 @@ def err(message: str) -> None:
     print(f"hidctl: {message}", file=sys.stderr)
 
 
+def display_path(path: Path) -> str:
+    """Prefer ./relative when the path is inside the current directory."""
+    try:
+        rel = path.resolve().relative_to(Path.cwd().resolve())
+        text = str(rel)
+        return "." if text == "." else f"./{text}"
+    except (OSError, ValueError):
+        return str(path)
+
+
 def ensure_dirs() -> None:
     for path in (RUN, LOGS, RUNTIME):
         path.mkdir(parents=True, exist_ok=True)
@@ -496,11 +506,11 @@ def cmd_status(as_json: bool) -> int:
 
         eeprom = data["eeprom"]
         if eeprom["exists"]:
-            print(f"eeprom  {eeprom['path']}  ({eeprom['size']} bytes, {eeprom['mtime']})")
+            print(f"eeprom  {display_path(EEPROM)}  ({eeprom['size']} bytes, {eeprom['mtime']})")
         else:
-            print(f"eeprom  {eeprom['path']}  (missing)")
+            print(f"eeprom  {display_path(EEPROM)}  (missing)")
 
-        print(f"config  {data['config']}")
+        print(f"config  {display_path(HID_CONFIG)}")
         print("xplane  external (not managed)")
 
     ok = (
@@ -835,13 +845,13 @@ def cmd_config_check() -> int:
 
 
 def cmd_config_show() -> int:
-    print(f"root        {ROOT}")
-    print(f"sitl        {SITL}")
-    print(f"eeprom      {EEPROM}")
-    print(f"hid config  {HID_CONFIG}")
-    print(f"backups     {BACKUPS}")
-    print(f"logs        {LOGS}")
-    print(f"pid dir     {RUN}")
+    print(f"root        {display_path(ROOT)}")
+    print(f"sitl        {display_path(SITL)}")
+    print(f"eeprom      {display_path(EEPROM)}")
+    print(f"hid config  {display_path(HID_CONFIG)}")
+    print(f"backups     {display_path(BACKUPS)}")
+    print(f"logs        {display_path(LOGS)}")
+    print(f"pid dir     {display_path(RUN)}")
     return 0
 
 

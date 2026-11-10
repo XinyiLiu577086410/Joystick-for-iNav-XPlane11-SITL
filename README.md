@@ -599,8 +599,8 @@ INAV SITL 运行时配置
 ```text
 sitl    running  pid 12345  ports 5760,5761,5762,5763
 bridge  running  pid 12346  target 127.0.0.1:5762  connected
-eeprom  config/runtime/plane.bin  (32768 bytes, 2026-11-10 10:20:31)
-config  config/hid2msp_inav.json
+eeprom  ./config/runtime/plane.bin  (32768 bytes, 2026-11-10 10:20:31)
+config  ./config/hid2msp_inav.json
 xplane  external (not managed)
 ```
 
