@@ -118,6 +118,8 @@ python hidctl.py status
 
 .\hidctl.cmd logs bridge -n 100
 .\hidctl.cmd logs all -f
+
+.\hidctl.cmd config load      # 把 CLI 源文件写进 eeprom（详见第 5 节）
 ```
 
 `start` 是幂等的；组件输出追加到 `logs\sitl.log`、`logs\bridge.log`，
@@ -201,10 +203,28 @@ python scripts\hid2msp.py --keys     # 不接 SITL，直接看键盘通道
 
 SITL 启动时**只读** `config\runtime\plane.bin`（eeprom）。
 人可读的源文件是 [config/INAV_SITL_MINIMAL_NODEFAULTS.txt](config/INAV_SITL_MINIMAL_NODEFAULTS.txt)，
-必须在 Configurator CLI 里加载并 `save` 才会写进 `plane.bin`。
+必须加载并 `save` 才会写进 `plane.bin`。
 
 首次使用或 `plane.bin` 丢失时，SITL 会生成一份**默认配置**（不是本项目配置），
-需要按下面步骤加载：
+需要加载一次。有两种方式：
+
+### 5.1 自动加载（推荐）
+
+```powershell
+.\hidctl.cmd start sitl
+.\hidctl.cmd config load
+```
+
+`config load` 会通过 TCP 5760 发送 `#` 进入 INAV CLI，把
+`config\INAV_SITL_MINIMAL_NODEFAULTS.txt` 里的命令逐条送到飞控，最后 `save`，
+并等待 SITL 重启、端口重新监听。
+
+- 默认端口 5760。**Configurator 正连着 5760 时请先 Disconnect**（每个 UART 只允许一个客户端）；
+  或者改用空闲的 UART，例如 `.\hidctl.cmd config load --port 5761`。
+- `--file <path>` 换配置文件；`--no-save` 只发送不保存。
+- 结束会打印错误行数量；像 `#wp 0 invalid` 这种来自 `diff all` 的注释行会被忽略。
+
+### 5.2 手动加载（Configurator CLI）
 
 1. Configurator 连 `127.0.0.1:5760`；
 2. 打开 CLI；
@@ -218,7 +238,12 @@ SITL 启动时**只读** `config\runtime\plane.bin`（eeprom）。
 .\hidctl.cmd backup eeprom --name before-fc-change
 ```
 
-### 5.1 备份 / 恢复 / 重置
+> 本机验证使用的是 **INAV SITL 10.0.0**（Configurator 10.0.0 自带）：
+> 302 条命令加载完成、`save` 后 UART3(5762)/UART4(5763) 正常监听，
+> 桥接器发出的通道在 `MSP_RC` 中可见。eeprom 与 SITL 版本相关，
+> 换 Configurator 版本后建议重新加载一次。
+
+### 5.3 备份 / 恢复 / 重置
 
 ```powershell
 .\hidctl.cmd backup eeprom [--name 标签]

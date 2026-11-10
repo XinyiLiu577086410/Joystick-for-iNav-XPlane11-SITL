@@ -53,6 +53,9 @@ blackbox -PEAKS_Y
 blackbox SERVOS
 
 # Receiver: Channel map
+# Explicit AETR input order: CH1 roll, CH2 pitch, CH3 throttle, CH4 yaw,
+# matching config/hid2msp_inav.json. This is also INAV's default mapping.
+map AETR
 
 # Ports
 serial 1 1 115200 115200 0 115200

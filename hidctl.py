@@ -1296,6 +1296,107 @@ def cmd_config_show() -> int:
     return 0
 
 
+def _cli_commands(path: Path) -> list[str]:
+    commands: list[str] = []
+    with path.open("r", encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            commands.append(stripped)
+    return commands
+
+
+def _cli_session(port: int, commands: list[str], save: bool) -> tuple[list[str], int]:
+    """Enter the INAV CLI with '#', send commands, optionally 'save'.
+
+    Returns (error lines, command count).
+    """
+    sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+    sock.settimeout(0.2)
+    output = bytearray()
+
+    def drain() -> None:
+        while True:
+            try:
+                chunk = sock.recv(8192)
+            except (socket.timeout, OSError):
+                return
+            if not chunk:
+                return
+            output.extend(chunk)
+
+    sock.sendall(b"#")
+    time.sleep(0.5)
+    drain()
+
+    for command in commands:
+        sock.sendall(command.encode() + b"\r\n")
+        time.sleep(0.012)
+        drain()
+
+    time.sleep(0.3)
+    drain()
+
+    if save:
+        sock.sendall(b"save\r\n")
+        time.sleep(0.5)
+        drain()
+
+    try:
+        sock.close()
+    except OSError:
+        pass
+
+    text = output.decode("utf-8", errors="replace")
+    errors = [
+        line.strip()
+        for line in text.splitlines()
+        if not line.strip().startswith("#")
+        and ("nknown" in line or "nvalid" in line or "rror" in line or "ailed" in line)
+    ]
+    return errors, len(commands)
+
+
+def cmd_config_load(file: str | None, port: int, save: bool) -> int:
+    path = Path(file).expanduser() if file else CONFIG / "INAV_SITL_MINIMAL_NODEFAULTS.txt"
+    if not path.is_file():
+        err(f"CLI file not found: {path}")
+        return 1
+    if not port_open(port):
+        err(f"SITL is not listening on 127.0.0.1:{port}; run 'hidctl.cmd start sitl' first")
+        return 1
+
+    commands = _cli_commands(path)
+    if not commands:
+        err(f"no commands in {path}")
+        return 1
+
+    print(f"loading {len(commands)} CLI commands from {display_path(path)} into 127.0.0.1:{port}")
+    errors, count = _cli_session(port, commands, save)
+    print(f"sent {count} commands" + (" and requested save" if save else " (not saved)"))
+
+    if errors:
+        print(f"{len(errors)} error line(s):")
+        for line in errors[:20]:
+            print(f"  {line}")
+    else:
+        print("no error lines in the CLI response")
+
+    if save:
+        deadline = time.monotonic() + 20.0
+        while time.monotonic() < deadline and port_open(port):
+            time.sleep(0.2)
+        while time.monotonic() < deadline and not port_open(port):
+            time.sleep(0.2)
+        if port_open(port):
+            print("SITL rebooted and is listening again")
+            return 0
+        err("SITL did not come back after save; check logs\\sitl.log")
+        return 1
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Doctor
 # ---------------------------------------------------------------------------
@@ -1493,6 +1594,10 @@ def build_parser() -> argparse.ArgumentParser:
     config_sub = config.add_subparsers(dest="config_command", required=True)
     config_sub.add_parser("check")
     config_sub.add_parser("show")
+    config_load = config_sub.add_parser("load")
+    config_load.add_argument("--file", default=None, help="CLI file (default config\\INAV_SITL_MINIMAL_NODEFAULTS.txt)")
+    config_load.add_argument("--port", type=int, default=5760, help="SITL MSP port (default 5760)")
+    config_load.add_argument("--no-save", action="store_true", help="send commands without save/reboot")
 
     sub.add_parser("doctor")
     sub.add_parser("version")
@@ -1503,7 +1608,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     command = args.command
 
-    mutating = command in {"start", "stop", "restart", "backup", "restore", "reset"}
+    mutating = command in {"start", "stop", "restart", "backup", "restore", "reset"} or (
+        command == "config" and getattr(args, "config_command", None) == "load"
+    )
     if mutating and not acquire_lock():
         return 1
     try:
@@ -1532,6 +1639,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             return cmd_reset(args.no_backup, args.yes)
         if command == "config":
+            if args.config_command == "load":
+                return cmd_config_load(args.file, args.port, not args.no_save)
             return cmd_config_check() if args.config_command == "check" else cmd_config_show()
         if command == "doctor":
             return cmd_doctor()
