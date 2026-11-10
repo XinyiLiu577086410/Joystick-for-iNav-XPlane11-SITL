@@ -1,0 +1,957 @@
+#!/usr/bin/env python3
+"""hidctl — manage the INAV SITL + HID-to-MSP bridge for this project.
+
+X-Plane and INAV Configurator are external; this tool never launches or stops them.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+VERSION = "1.0.0"
+
+ROOT = Path(__file__).resolve().parent
+RUN = ROOT / "run"
+LOGS = ROOT / "logs"
+CONFIG = ROOT / "config"
+RUNTIME = CONFIG / "runtime"
+BACKUPS = RUNTIME / "backups"
+EEPROM = RUNTIME / "plane.bin"
+HID_CONFIG = CONFIG / "hid2msp_inav.json"
+BRIDGE = ROOT / "scripts" / "hid2msp.py"
+SITL = Path(
+    os.environ.get(
+        "HIDCTL_SITL",
+        "/Applications/INAV Configurator 9.0.0.app/Contents/Resources/sitl/macos/inav_SITL",
+    )
+)
+
+PORTS = (5760, 5761, 5762, 5763)
+COMPONENTS = ("sitl", "bridge")
+PWM_MIN, PWM_MAX = 1000, 2000
+KINDS = {"bipolar", "unipolar", "tri", "binary", "multi"}
+
+
+# ---------------------------------------------------------------------------
+# Small helpers
+# ---------------------------------------------------------------------------
+def now() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def err(message: str) -> None:
+    print(f"hidctl: {message}", file=sys.stderr)
+
+
+def ensure_dirs() -> None:
+    for path in (RUN, LOGS, RUNTIME):
+        path.mkdir(parents=True, exist_ok=True)
+
+
+def pid_file(component: str) -> Path:
+    return RUN / f"{component}.pid"
+
+
+def log_file(component: str) -> Path:
+    return LOGS / f"{component}.log"
+
+
+def append_log_header(component: str, action: str) -> None:
+    ensure_dirs()
+    with log_file(component).open("ab") as fh:
+        fh.write(f"\n===== {now()} {action} {component} =====\n".encode())
+
+
+def append_log_line(component: str, line: str) -> None:
+    ensure_dirs()
+    with log_file(component).open("ab") as fh:
+        fh.write((line.rstrip("\n") + "\n").encode())
+
+
+def read_pid(component: str) -> int | None:
+    path = pid_file(component)
+    try:
+        return int(path.read_text().strip())
+    except (FileNotFoundError, ValueError, OSError):
+        return None
+
+
+def write_pid(component: str, pid: int) -> None:
+    ensure_dirs()
+    pid_file(component).write_text(f"{pid}\n")
+
+
+def remove_pid(component: str) -> None:
+    try:
+        pid_file(component).unlink()
+    except FileNotFoundError:
+        pass
+
+
+def process_name(pid: int) -> str:
+    """Best-effort process name via lsof (ps is blocked by the sandbox here)."""
+    try:
+        result = subprocess.run(
+            ["lsof", "-nP", "-p", str(pid), "-F", "c"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        for line in result.stdout.splitlines():
+            if line.startswith("c"):
+                return line[1:].strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return ""
+
+
+def pid_is_component(component: str, pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+
+    name = process_name(pid)
+    if not name:
+        # Cannot inspect the process (sandbox/permissions); trust our PID file.
+        return True
+    if component == "sitl":
+        return "inav_SITL" in name
+    if component == "bridge":
+        return "Python" in name or "python" in name
+    return False
+
+
+def component_running(component: str) -> tuple[bool, int | None]:
+    pid = read_pid(component)
+    if pid is None:
+        return False, None
+    if pid_is_component(component, pid):
+        return True, pid
+    remove_pid(component)
+    return False, None
+
+
+def port_open(port: int, host: str = "127.0.0.1", timeout: float = 0.2) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def wait_ports(ports: tuple[int, ...], timeout: float, pid: int | None = None) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if all(port_open(port) for port in ports):
+            return True
+        if pid is not None:
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                return False
+        time.sleep(0.1)
+    return False
+
+
+def bridge_connected(pid: int) -> bool | None:
+    """Return True/False if lsof can tell, None if lsof is unavailable."""
+    try:
+        result = subprocess.run(
+            [
+                "lsof",
+                "-nP",
+                "-p",
+                str(pid),
+                "-iTCP:5762",
+                "-sTCP:ESTABLISHED",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        return bool(result.stdout.strip())
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Process lifecycle
+# ---------------------------------------------------------------------------
+def spawn(component: str, cmd: list[str]) -> subprocess.Popen | None:
+    ensure_dirs()
+    log = log_file(component)
+    append_log_header(component, "start")
+    with log.open("ab") as fh:
+        fh.write(("$ " + " ".join(cmd) + "\n").encode())
+        fh.flush()
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(ROOT),
+                stdin=subprocess.DEVNULL,
+                stdout=fh,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                close_fds=True,
+            )
+        except OSError as exc:
+            fh.write(f"spawn failed: {exc}\n".encode())
+            return None
+    write_pid(component, proc.pid)
+    append_log_line(component, f"pid={proc.pid}")
+    return proc
+
+
+def stop_component(component: str) -> int:
+    pid = read_pid(component)
+    if pid is None:
+        remove_pid(component)
+        return 0
+    if not pid_is_component(component, pid):
+        remove_pid(component)
+        return 0
+
+    append_log_header(component, "stop")
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGTERM)
+    except OSError:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            remove_pid(component)
+            return 0
+
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            remove_pid(component)
+            return 0
+        time.sleep(0.1)
+
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGKILL)
+    except OSError:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+    time.sleep(0.2)
+    remove_pid(component)
+    return 0
+
+
+def start_sitl(wait: bool = True) -> int:
+    ensure_dirs()
+    running, pid = component_running("sitl")
+    if running:
+        return 0
+    if not SITL.is_file() or not os.access(SITL, os.X_OK):
+        err(f"SITL not found or not executable: {SITL}")
+        return 1
+
+    busy = [port for port in PORTS if port_open(port)]
+    if busy:
+        err(
+            "SITL ports already in use: "
+            + ", ".join(str(p) for p in busy)
+            + " (stop old SITL first)"
+        )
+        return 1
+
+    RUNTIME.mkdir(parents=True, exist_ok=True)
+    proc = spawn("sitl", [str(SITL), f"--path={EEPROM}"])
+    if proc is None:
+        err("failed to start SITL; see logs/sitl.log")
+        return 1
+
+    if wait and not wait_ports((5760, 5761), 10.0, proc.pid):
+        err("SITL did not open 5760/5761; see logs/sitl.log")
+        stop_component("sitl")
+        return 1
+    if proc.poll() is not None:
+        err("SITL exited during startup; see logs/sitl.log")
+        remove_pid("sitl")
+        return 1
+    return 0
+
+
+def start_bridge(wait: bool = True) -> int:
+    ensure_dirs()
+    running, _ = component_running("bridge")
+    if running:
+        return 0
+
+    sitl_running, _ = component_running("sitl")
+    if not sitl_running:
+        err("warning: SITL is not running; bridge will keep retrying 127.0.0.1:5762")
+
+    if not HID_CONFIG.is_file():
+        err(f"HID config not found: {HID_CONFIG}")
+        return 1
+    if not BRIDGE.is_file():
+        err(f"bridge script not found: {BRIDGE}")
+        return 1
+
+    proc = spawn(
+        "bridge",
+        [
+            sys.executable,
+            str(BRIDGE),
+            "--config",
+            str(HID_CONFIG),
+            "--port",
+            "5762",
+            "-v",
+        ],
+    )
+    if proc is None:
+        err("failed to start bridge; see logs/bridge.log")
+        return 1
+
+    if wait:
+        time.sleep(1.5)
+        if proc.poll() is not None:
+            err("bridge exited immediately; see logs/bridge.log")
+            remove_pid("bridge")
+            return 1
+    return 0
+
+
+def start_all() -> int:
+    rc = start_sitl()
+    if rc != 0:
+        return rc
+    rc = start_bridge()
+    if rc != 0:
+        err("bridge failed; stopping SITL to avoid a half-started stack")
+        stop_component("sitl")
+        return rc
+    return 0
+
+
+def stop_all() -> int:
+    stop_component("bridge")
+    stop_component("sitl")
+    return 0
+
+
+def cmd_start(component: str) -> int:
+    if component == "sitl":
+        return start_sitl()
+    if component == "bridge":
+        return start_bridge()
+    return start_all()
+
+
+def cmd_stop(component: str) -> int:
+    if component == "sitl":
+        return stop_component("sitl")
+    if component == "bridge":
+        return stop_component("bridge")
+    return stop_all()
+
+
+def cmd_restart(component: str) -> int:
+    if component == "sitl":
+        stop_component("sitl")
+        return start_sitl()
+    if component == "bridge":
+        stop_component("bridge")
+        return start_bridge()
+    stop_all()
+    return start_all()
+
+
+# ---------------------------------------------------------------------------
+# Status
+# ---------------------------------------------------------------------------
+def status_data() -> dict:
+    sitl_running, sitl_pid = component_running("sitl")
+    bridge_running, bridge_pid = component_running("bridge")
+
+    connected = None
+    if bridge_running and bridge_pid is not None:
+        connected = bridge_connected(bridge_pid)
+
+    eeprom = {
+        "path": str(EEPROM),
+        "exists": EEPROM.is_file(),
+        "size": EEPROM.stat().st_size if EEPROM.is_file() else None,
+        "mtime": (
+            datetime.fromtimestamp(EEPROM.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            if EEPROM.is_file()
+            else None
+        ),
+    }
+    return {
+        "sitl": {
+            "running": sitl_running,
+            "pid": sitl_pid,
+            "ports": {str(port): port_open(port) for port in PORTS},
+        },
+        "bridge": {
+            "running": bridge_running,
+            "pid": bridge_pid,
+            "target": "127.0.0.1:5762",
+            "connected": connected,
+        },
+        "eeprom": eeprom,
+        "config": str(HID_CONFIG),
+        "xplane": "external",
+    }
+
+
+def cmd_status(as_json: bool) -> int:
+    data = status_data()
+
+    if as_json:
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+    else:
+        sitl = data["sitl"]
+        if sitl["running"]:
+            open_ports = [p for p, is_open in sitl["ports"].items() if is_open]
+            print(
+                f"sitl    running  pid {sitl['pid']}  ports "
+                + (",".join(open_ports) if open_ports else "none")
+            )
+        else:
+            print("sitl    stopped")
+
+        bridge = data["bridge"]
+        if bridge["running"]:
+            if bridge["connected"] is True:
+                state = "connected"
+            elif bridge["connected"] is False:
+                state = "waiting"
+            else:
+                state = "unknown"
+            print(f"bridge  running  pid {bridge['pid']}  target {bridge['target']}  {state}")
+        else:
+            print("bridge  stopped")
+
+        eeprom = data["eeprom"]
+        if eeprom["exists"]:
+            print(f"eeprom  {eeprom['path']}  ({eeprom['size']} bytes, {eeprom['mtime']})")
+        else:
+            print(f"eeprom  {eeprom['path']}  (missing)")
+
+        print(f"config  {data['config']}")
+        print("xplane  external (not managed)")
+
+    ok = (
+        data["sitl"]["running"]
+        and data["bridge"]["running"]
+        and data["bridge"]["connected"] is not False
+    )
+    return 0 if ok else 1
+
+
+# ---------------------------------------------------------------------------
+# Logs
+# ---------------------------------------------------------------------------
+def tail_lines(path: Path, count: int) -> list[str]:
+    try:
+        with path.open("r", errors="replace") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return []
+    return lines[-count:] if count > 0 else lines
+
+
+def cmd_logs(component: str, follow: bool, lines: int) -> int:
+    names = ["sitl", "bridge"] if component == "all" else [component]
+    paths = [log_file(name) for name in names]
+
+    if follow:
+        existing = [str(path) for path in paths if path.is_file()]
+        if not existing:
+            err("no log files yet")
+            return 1
+        cmd = ["tail", "-n", str(lines), "-f", *existing]
+        try:
+            subprocess.run(cmd, check=False)
+        except KeyboardInterrupt:
+            return 0
+        return 0
+
+    missing = False
+    for path in paths:
+        print(f"==> {path} <==")
+        if not path.is_file():
+            print("(missing)")
+            missing = True
+            continue
+        for line in tail_lines(path, lines):
+            print(line.rstrip("\n"))
+        print()
+    return 1 if missing and all(not path.is_file() for path in paths) else 0
+
+
+# ---------------------------------------------------------------------------
+# Backups
+# ---------------------------------------------------------------------------
+def safe_label(label: str | None) -> str:
+    if not label:
+        return ""
+    value = re.sub(r"[^A-Za-z0-9._-]+", "-", label).strip("-")
+    return f"-{value}" if value else ""
+
+
+def backup_eeprom(label: str | None = None, quiet: bool = False) -> Path | None:
+    if not EEPROM.is_file():
+        err(f"eeprom not found: {EEPROM}")
+        return None
+
+    BACKUPS.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    base = f"plane-{stamp}{safe_label(label)}"
+    target = BACKUPS / f"{base}.bin"
+    counter = 1
+    while target.exists():
+        target = BACKUPS / f"{base}-{counter:02d}.bin"
+        counter += 1
+
+    if not quiet:
+        running, _ = component_running("sitl")
+        if running:
+            err("warning: live eeprom snapshot; avoid saving config at the same time")
+    shutil.copyfile(EEPROM, target)
+    return target
+
+
+def cmd_backup(label: str | None) -> int:
+    path = backup_eeprom(label)
+    if path is None:
+        return 1
+    print(path)
+    return 0
+
+
+def cmd_backups() -> int:
+    BACKUPS.mkdir(parents=True, exist_ok=True)
+    files = sorted(
+        (p for p in BACKUPS.glob("plane-*.bin") if p.is_file()),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not files:
+        print("no backups")
+        return 0
+
+    print(f"{'TIME':20} {'SIZE':>8}  NAME")
+    for path in files:
+        mtime = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        print(f"{mtime:20} {path.stat().st_size:>7}  {path.name}")
+    return 0
+
+
+def resolve_backup(value: str) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        candidate = Path.cwd() / path
+        if candidate.exists():
+            return candidate.resolve()
+        candidate = ROOT / path
+        if candidate.exists():
+            return candidate.resolve()
+        return path
+    return path
+
+
+def cmd_restore(file: str, yes: bool, no_start: bool, no_backup: bool) -> int:
+    if not yes:
+        err("restore is destructive; pass --yes")
+        return 2
+
+    source = resolve_backup(file)
+    if not source.is_file():
+        err(f"backup not found: {file}")
+        return 1
+    if EEPROM.exists() and source.resolve() == EEPROM.resolve():
+        err("source is the current eeprom; choose a backup file")
+        return 1
+
+    stop_all()
+    previous = None
+    if not no_backup and EEPROM.is_file():
+        previous = backup_eeprom("before-restore", quiet=True)
+    RUNTIME.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, EEPROM)
+
+    print(f"restored: {source} -> {EEPROM}")
+    if previous:
+        print(f"previous eeprom saved: {previous}")
+
+    if no_start:
+        return 0
+    return start_all()
+
+
+# ---------------------------------------------------------------------------
+# Reset
+# ---------------------------------------------------------------------------
+def cmd_reset(no_backup: bool, yes: bool) -> int:
+    if not yes:
+        err("reset eeprom is destructive; pass --yes")
+        return 2
+
+    stop_all()
+    backup = None
+    if not no_backup and EEPROM.is_file():
+        backup = backup_eeprom("before-reset", quiet=True)
+    try:
+        EEPROM.unlink()
+    except FileNotFoundError:
+        pass
+
+    rc = start_sitl()
+    print(f"eeprom reset: {EEPROM}")
+    if backup:
+        print(f"backup: {backup}")
+    else:
+        print("backup: none")
+    print("next: Configurator -> TCP 127.0.0.1:5760 -> CLI -> paste config/INAV_SITL_MINIMAL_NODEFAULTS.txt -> save")
+    print("then: ./hidctl start bridge")
+    return rc
+
+
+# ---------------------------------------------------------------------------
+# Config validation
+# ---------------------------------------------------------------------------
+def _check_channel(channel: int, where: str, errors: list[str]) -> None:
+    if not isinstance(channel, int) or not 1 <= channel <= 16:
+        errors.append(f"{where}: channel must be 1..16")
+
+
+def _check_pwm(value: int, where: str, errors: list[str]) -> None:
+    if not isinstance(value, int) or not PWM_MIN <= value <= PWM_MAX:
+        errors.append(f"{where}: PWM must be {PWM_MIN}..{PWM_MAX}")
+
+
+def validate_config(path: Path) -> list[str]:
+    errors: list[str] = []
+    if not path.is_file():
+        return [f"config not found: {path}"]
+
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"cannot parse JSON: {exc}"]
+
+    if not isinstance(data, dict):
+        return ["top-level JSON must be an object"]
+
+    port = data.get("port", 5762)
+    if not isinstance(port, int) or not 1 <= port <= 65535:
+        errors.append("port must be 1..65535")
+    rate = data.get("rate_hz", 50)
+    if not isinstance(rate, (int, float)) or rate <= 0:
+        errors.append("rate_hz must be > 0")
+
+    channels: dict[int, str] = {}
+
+    def claim(channel: int, where: str) -> None:
+        _check_channel(channel, where, errors)
+        if isinstance(channel, int):
+            if channel in channels:
+                errors.append(f"{where}: channel {channel} already used by {channels[channel]}")
+            else:
+                channels[channel] = where
+
+    for index, item in enumerate(data.get("axes", []) or []):
+        where = f"axes[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{where}: must be an object")
+            continue
+        if not isinstance(item.get("axis"), int) or item.get("axis", -1) < 0:
+            errors.append(f"{where}: axis must be >= 0")
+        claim(item.get("channel"), where)
+        kind = item.get("kind", "bipolar")
+        if kind not in KINDS:
+            errors.append(f"{where}: kind must be one of {sorted(KINDS)}")
+        trim = item.get("trim", 1500)
+        _check_pwm(trim, f"{where}.trim", errors)
+        if kind == "multi":
+            levels = item.get("levels", 6)
+            values = item.get("values", [])
+            if not isinstance(levels, int) or levels < 2:
+                errors.append(f"{where}: levels must be >= 2")
+            if not isinstance(values, list) or len(values) != levels:
+                errors.append(f"{where}: values length must equal levels")
+            else:
+                for value in values:
+                    _check_pwm(value, f"{where}.values", errors)
+
+    for index, item in enumerate(data.get("buttons", []) or []):
+        where = f"buttons[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{where}: must be an object")
+            continue
+        if not isinstance(item.get("button"), int) or item.get("button", -1) < 0:
+            errors.append(f"{where}: button must be >= 0")
+        claim(item.get("channel"), where)
+        _check_pwm(item.get("low", PWM_MIN), f"{where}.low", errors)
+        _check_pwm(item.get("high", PWM_MAX), f"{where}.high", errors)
+
+    for index, item in enumerate(data.get("buttons3", []) or []):
+        where = f"buttons3[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{where}: must be an object")
+            continue
+        claim(item.get("channel"), where)
+        for key in ("low", "mid", "high"):
+            if key in item:
+                _check_pwm(item[key], f"{where}.{key}", errors)
+
+    for index, item in enumerate(data.get("combine", []) or []):
+        where = f"combine[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{where}: must be an object")
+            continue
+        claim(item.get("channel"), where)
+        for key in ("a", "b"):
+            value = item.get(key)
+            if not isinstance(value, int) or not 1 <= value <= 16:
+                errors.append(f"{where}.{key}: must be channel 1..16")
+        for value in item.get("values", []) or []:
+            _check_pwm(value, f"{where}.values", errors)
+
+    for key, value in (data.get("constants", {}) or {}).items():
+        try:
+            channel = int(key)
+        except (TypeError, ValueError):
+            errors.append(f"constants[{key!r}]: key must be a channel number")
+            continue
+        claim(channel, f"constants[{key}]")
+        _check_pwm(value, f"constants[{key}]", errors)
+
+    return errors
+
+
+def cmd_config_check() -> int:
+    errors = validate_config(HID_CONFIG)
+    if errors:
+        for item in errors:
+            err(item)
+        return 4
+    print(f"OK: {HID_CONFIG}")
+    return 0
+
+
+def cmd_config_show() -> int:
+    print(f"root        {ROOT}")
+    print(f"sitl        {SITL}")
+    print(f"eeprom      {EEPROM}")
+    print(f"hid config  {HID_CONFIG}")
+    print(f"backups     {BACKUPS}")
+    print(f"logs        {LOGS}")
+    print(f"pid dir     {RUN}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Doctor
+# ---------------------------------------------------------------------------
+def cmd_doctor() -> int:
+    checks: list[tuple[str, bool, str]] = []
+
+    checks.append(("SITL binary", SITL.is_file() and os.access(SITL, os.X_OK), str(SITL)))
+    checks.append(("Python", sys.version_info >= (3, 10), sys.version.split()[0]))
+    checks.append(("hid2msp.py", BRIDGE.is_file(), str(BRIDGE)))
+
+    try:
+        os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
+        import pygame  # type: ignore
+
+        pygame.init()
+        pygame.joystick.init()
+        count = pygame.joystick.get_count()
+        pygame.quit()
+        checks.append(("pygame / HID", count > 0, f"{count} joystick(s)"))
+    except Exception as exc:  # noqa: BLE001
+        checks.append(("pygame / HID", False, str(exc)))
+
+    errors = validate_config(HID_CONFIG)
+    checks.append(("HID config", not errors, f"{len(errors)} error(s)" if errors else "ok"))
+
+    eeprom_ok = EEPROM.is_file() and EEPROM.stat().st_size == 32768
+    checks.append(
+        (
+            "eeprom",
+            eeprom_ok,
+            f"{EEPROM.stat().st_size} bytes" if EEPROM.is_file() else "missing",
+        )
+    )
+
+    for port in PORTS:
+        checks.append((f"port {port}", True, "open" if port_open(port) else "closed (ok if stopped)"))
+
+    failed = False
+    for name, ok, detail in checks:
+        if not ok:
+            failed = True
+        print(f"{'PASS' if ok else 'FAIL':4}  {name:14}  {detail}")
+
+    if errors:
+        for item in errors:
+            print(f"      - {item}")
+    return 1 if failed else 0
+
+
+# ---------------------------------------------------------------------------
+# Locking
+# ---------------------------------------------------------------------------
+def acquire_lock() -> bool:
+    ensure_dirs()
+    lock = RUN / "hidctl.lock"
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        with os.fdopen(fd, "w") as fh:
+            fh.write(f"{os.getpid()}\n{now()}\n")
+        return True
+    except FileExistsError:
+        try:
+            age = time.time() - lock.stat().st_mtime
+        except OSError:
+            age = 0
+        if age > 120:
+            try:
+                lock.unlink()
+            except OSError:
+                pass
+            return acquire_lock()
+        err("another hidctl operation is in progress (run/hidctl.lock)")
+        return False
+
+
+def release_lock() -> None:
+    try:
+        (RUN / "hidctl.lock").unlink()
+    except OSError:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="hidctl",
+        description="Manage INAV SITL and the HID-to-MSP bridge. X-Plane is external.",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    for name in ("start", "stop", "restart"):
+        sp = sub.add_parser(name)
+        sp.add_argument(
+            "component",
+            nargs="?",
+            default="all",
+            choices=("all", "sitl", "bridge"),
+            help="component to manage (default: all)",
+        )
+
+    sp = sub.add_parser("status")
+    sp.add_argument("--json", action="store_true")
+
+    sp = sub.add_parser("logs")
+    sp.add_argument(
+        "component",
+        nargs="?",
+        default="all",
+        choices=("all", "sitl", "bridge"),
+    )
+    sp.add_argument("-f", "--follow", action="store_true")
+    sp.add_argument("-n", "--lines", type=int, default=50)
+
+    backup = sub.add_parser("backup")
+    backup_sub = backup.add_subparsers(dest="backup_target", required=True)
+    bp = backup_sub.add_parser("eeprom")
+    bp.add_argument("--name", default=None)
+
+    sub.add_parser("backups")
+
+    restore = sub.add_parser("restore")
+    restore_sub = restore.add_subparsers(dest="restore_target", required=True)
+    rp = restore_sub.add_parser("eeprom")
+    rp.add_argument("file")
+    rp.add_argument("--yes", action="store_true")
+    rp.add_argument("--no-start", action="store_true")
+    rp.add_argument("--no-backup", action="store_true")
+
+    reset = sub.add_parser("reset")
+    reset_sub = reset.add_subparsers(dest="reset_target", required=True)
+    ep = reset_sub.add_parser("eeprom")
+    ep.add_argument("--yes", action="store_true")
+    ep.add_argument("--no-backup", action="store_true")
+
+    config = sub.add_parser("config")
+    config_sub = config.add_subparsers(dest="config_command", required=True)
+    config_sub.add_parser("check")
+    config_sub.add_parser("show")
+
+    sub.add_parser("doctor")
+    sub.add_parser("version")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    command = args.command
+
+    mutating = command in {"start", "stop", "restart", "backup", "restore", "reset"}
+    if mutating and not acquire_lock():
+        return 1
+    try:
+        if command == "start":
+            return cmd_start(args.component)
+        if command == "stop":
+            return cmd_stop(args.component)
+        if command == "restart":
+            return cmd_restart(args.component)
+        if command == "status":
+            return cmd_status(args.json)
+        if command == "logs":
+            return cmd_logs(args.component, args.follow, args.lines)
+        if command == "backup":
+            return cmd_backup(args.name)
+        if command == "backups":
+            return cmd_backups()
+        if command == "restore":
+            return cmd_restore(args.file, args.yes, args.no_start, args.no_backup)
+        if command == "reset":
+            return cmd_reset(args.no_backup, args.yes)
+        if command == "config":
+            return cmd_config_check() if args.config_command == "check" else cmd_config_show()
+        if command == "doctor":
+            return cmd_doctor()
+        if command == "version":
+            print(f"hidctl {VERSION}")
+            return 0
+        return 2
+    except KeyboardInterrupt:
+        return 130
+    except Exception as exc:  # noqa: BLE001
+        err(str(exc))
+        return 1
+    finally:
+        if mutating:
+            release_lock()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

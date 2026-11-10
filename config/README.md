@@ -8,6 +8,7 @@
 | `hid2msp_inav.json` | HID → RC 映射 | `scripts/hid2msp.py` 每次启动 |
 | `hid2msp.example.json` | 通用示例 | 仅参考，不参与运行 |
 | `runtime/plane.bin` | SITL eeprom | SITL 每次启动 `--path` 读取 |
+| `runtime/backups/` | eeprom 备份 | `hidctl backup` / `reset` / `restore` 生成 |
 | `calibration.json` | 标定结果（可选） | 人查看；由 `scripts/calibrate_hid.py` 生成 |
 
 ## 关键关系

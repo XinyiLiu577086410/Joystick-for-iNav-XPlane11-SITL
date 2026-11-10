@@ -18,13 +18,11 @@
 ```bash
 cd "$HOME/Desktop/Read-the-Source-Code/hid-as-rx"
 
-# 三个后台脚本，终端无 stdout/stderr；日志在 logs/
-./scripts/start_xplane.sh
-./scripts/start_sitl.sh
-./scripts/start_bridge.sh
+# 单入口：默认启动 SITL + bridge，后台运行，无 stdout/stderr
+./hidctl start
 
-# 看状态 / 端口
-./scripts/status.sh
+# 看状态
+./hidctl status
 ```
 
 然后：
@@ -33,6 +31,8 @@ cd "$HOME/Desktop/Read-the-Source-Code/hid-as-rx"
 2. `Plugins → INAV HITL/SITL → Connect to SITL → 127.0.0.1:5761`；
 3. 需要改参数时，Configurator 用 **TCP 127.0.0.1:5760** 连接；
 4. 启动桥前先把 **SWB 拨到低位**，避免自动解锁。
+
+X-Plane 不由 `hidctl` 管理；它只负责 SITL 和手柄桥。
 
 更详细的安装、配置和排错见下文。
 
@@ -121,7 +121,7 @@ cd "$HOME/Desktop/Read-the-Source-Code/hid-as-rx"
 | **HID 映射** | [hid2msp_inav.json](config/hid2msp_inav.json) | `scripts/hid2msp.py` 每次启动 | 轴/按键 → CH1–CH9、六段模式、CH9 常高 |
 | **通用示例** | [hid2msp.example.json](config/hid2msp.example.json) | 仅参考 | Xbox 风格示例，不是当前配置 |
 | **标定结果** | `config/calibration.json` | 人/`scripts/calibrate_hid.py` | 可选；脚本生成，已被 `.gitignore` 忽略 |
-| **启动/运维脚本** | `scripts/start_xplane.sh`、`start_sitl.sh`、`start_bridge.sh`、`stop_all.sh`、`restart_sitl.sh`、`status.sh`、`check_ports.sh` | 人 | 后台带起/停止/重置组件 |
+| **统一入口** | [hidctl](hidctl) | 人 | 启停 SITL/bridge、状态、日志、备份、恢复、重置 |
 | **文档/图** | `README.md`、`docs/SOLUTION.md`、`docs/*.png` | 人 | 说明与架构/时序图 |
 | **上游仓库** | `3rdparty/inav/`、`3rdparty/inav-configurator/`、`3rdparty/INAV-X-Plane-HITL/` | 不参与运行 | 本地参考；`.gitignore` 排除 |
 
@@ -143,18 +143,13 @@ cd "$HOME/Desktop/Read-the-Source-Code/hid-as-rx"
 | [hid2msp.example.json](config/hid2msp.example.json) | 通用 Xbox 风格示例 |
 | [calibrate_hid.py](scripts/calibrate_hid.py) | 交互式摇杆标定脚本 |
 | [INAV_SITL_MINIMAL_NODEFAULTS.txt](config/INAV_SITL_MINIMAL_NODEFAULTS.txt) | **唯一 SITL CLI 源配置** |
-| [start_xplane.sh](scripts/start_xplane.sh) | 后台启动 X-Plane |
-| [start_sitl.sh](scripts/start_sitl.sh) | 后台启动 SITL |
-| [start_bridge.sh](scripts/start_bridge.sh) | 后台启动手柄桥 |
-| [stop_all.sh](scripts/stop_all.sh) | 停止 SITL + 手柄桥 |
-| [restart_sitl.sh](scripts/restart_sitl.sh) | 软重置 SITL（保留 eeprom） |
-| [status.sh](scripts/status.sh) | 查看 PID + 端口 |
-| [check_ports.sh](scripts/check_ports.sh) | 只检查 5760–5763 |
+| [hidctl](hidctl) | 统一入口：启停、状态、日志、备份、恢复、重置 |
 | `docs/architecture.png` | 架构图 |
 | `docs/startup.png` | 启动时序图 |
 | `docs/sequence.png` | 运行时序图 |
 | `docs/make_diagrams.py` | 重新生成三张图 |
 | `config/runtime/plane.bin` | SITL 运行时 eeprom（配置真正生效的地方） |
+| `config/runtime/backups/` | eeprom 备份（运行时生成，已忽略） |
 
 > `config/runtime/` 是运行时目录，不是源码。不要直接编辑 `plane.bin`，用 Configurator/CLI 修改。
 
@@ -389,7 +384,7 @@ aux 8 28 1 1950 2050  # CH6 SWC -> NAV WP
 **SITL 启动时只读 `config/runtime/plane.bin`。**
 
 ```bash
-./scripts/start_sitl.sh
+./hidctl start sitl
 # 等价于：
 # inav_SITL --path="$PWD/config/runtime/plane.bin"
 ```
@@ -409,7 +404,7 @@ INAV SITL 运行时配置
 因此：
 
 - 修改 `config/INAV_SITL_MINIMAL_NODEFAULTS.txt` **不会**自动影响正在运行的 SITL；必须重新在 CLI 里加载并 `save`，或重新生成 `config/runtime/plane.bin`。
-- `scripts/start_sitl.sh` 不会读 `.txt`；它只把 `config/runtime/plane.bin` 传给 `--path`。
+- `hidctl` 不会读 `.txt`；它只把 `config/runtime/plane.bin` 传给 SITL 的 `--path`。
 - 如果 `config/runtime/plane.bin` 不存在，SITL 会生成一份**默认配置**，不是本项目配置；需要按 7.7 加载 CLI。
 - 不要直接编辑 `config/runtime/plane.bin`（二进制）；用 Configurator/CLI 修改后 `save`。
 - 不要在 INAV 9 SITL 上反复执行 `defaults noreboot` + 连续灌 CLI；本次实际遇到过崩溃。需要重置时优先删除/备份 `config/runtime/plane.bin`，让 SITL 生成全新 eeprom，再加载 `config/INAV_SITL_MINIMAL_NODEFAULTS.txt`。
@@ -418,33 +413,33 @@ INAV SITL 运行时配置
 
 ## 6. 启动、停止与重置
 
-三个**后台脚本**负责带起 X-Plane、SITL、手柄桥。它们都不向终端输出 stdout/stderr；日志写到 `logs/`，PID 写到 `run/`。
+统一入口是 **`./hidctl`**，只管理两个组件：
 
-### 6.1 启动顺序
+| 组件 | 作用 |
+|---|---|
+| `sitl` | INAV SITL，读取 `config/runtime/plane.bin` |
+| `bridge` | `scripts/hid2msp.py`，读取 `config/hid2msp_inav.json` |
+
+**X-Plane 不由 `hidctl` 管理**；它只负责启动 SITL 和手柄桥。
+
+### 6.1 启动
 
 ```bash
-cd "$HOME/Desktop/Read-the-Source-Code/hid-as-rx"
-
-./scripts/start_xplane.sh     # 启动 X-Plane（已运行则跳过）
-./scripts/start_sitl.sh       # 后台启动 INAV SITL
-./scripts/start_bridge.sh     # 后台启动 HID → MSP 桥
-
-./scripts/status.sh           # 查看 PID 和端口
+./hidctl start              # 默认 all：SITL + bridge
+./hidctl start sitl         # 只启动 SITL
+./hidctl start bridge       # 只启动 bridge
 ```
 
-说明：
+行为：
 
-- `start_xplane.sh` 只负责**打开 X-Plane**，不会自动加载 INAV Surfwing，也不会点插件菜单。
-- `start_sitl.sh` 读取 `config/runtime/plane.bin`，不是 `.txt`。
-- `start_bridge.sh` 读取 `config/hid2msp_inav.json`；启动前把 **SWB 拨到低位**，避免一启动就解锁。
-- 三个脚本都是幂等的：检测到已在运行就跳过。
-- 终端不会打印任何东西；需要看状态用 `status.sh`，需要看日志去 `logs/`。
-- `start_xplane.sh` 默认找 `~/Applications/X-Plane 11.app`；如果装在其他位置：
-  ```bash
-  XP_APP="/path/to/X-Plane 11.app" ./scripts/start_xplane.sh
-  ```
+- 成功后**不输出 stdout**；错误写 stderr。
+- 组件输出追加到 `logs/sitl.log`、`logs/bridge.log`。
+- PID 写到 `run/sitl.pid`、`run/bridge.pid`。
+- `start all` 先启动 SITL，等 5760/5761 就绪，再启动 bridge；SITL 起不来就不会启动 bridge。
+- `start bridge` 时如果 SITL 没运行：只警告，bridge 仍然启动并不断重连 5762。
+- `start` 是幂等的，已经在运行就跳过。
 
-### 6.2 X-Plane 里还要手动做两件事
+### 6.2 外部 UI 还要手动操作
 
 1. 加载 **INAV Surfwing**（`Select Aircraft` 里勾选 `Show extra aircraft from old versions`）。
 2. 连接插件：
@@ -453,70 +448,128 @@ cd "$HOME/Desktop/Read-the-Source-Code/hid-as-rx"
    ```
 3. 需要改参数时，Configurator 用 TCP `127.0.0.1:5760` 连接。
 
-### 6.3 状态、日志与停止
+### 6.3 状态
 
 ```bash
-./scripts/status.sh        # PID + 端口
-./scripts/check_ports.sh   # 只看 5760–5763
-./scripts/stop_all.sh      # 停止 SITL + 手柄桥
+./hidctl status
+./hidctl status --json
 ```
 
-日志/PID：
+示例：
 
-| 文件 | 内容 |
-|---|---|
-| `run/sitl.pid` | SITL 进程号 |
-| `run/bridge.pid` | 手柄桥进程号 |
-| `logs/sitl.log` | SITL 输出 |
-| `logs/bridge.log` | 手柄桥输出 |
-| `logs/xplane.log` | `start_xplane.sh` 的 `open` 输出 |
+```text
+sitl    running  pid 12345  ports 5760,5761,5762,5763
+bridge  running  pid 12346  target 127.0.0.1:5762  connected
+eeprom  config/runtime/plane.bin  (32768 bytes, 2026-11-10 10:20:31)
+config  config/hid2msp_inav.json
+xplane  external (not managed)
+```
 
-`stop_all.sh` **不会关闭 X-Plane**；X-Plane 需要你自己退出。
+- `bridge` 可能显示 `waiting`（SITL 没起或正在重连）或 `unknown`（无法用 `lsof` 判断）。
+- 退出码：`0` 表示 SITL 正常运行且 bridge 已连接；否则 `1`。
 
-### 6.4 重置状态（不是 X-Plane 重置游戏）
+### 6.4 日志
+
+日志采用**追加**模式，不覆盖、不自动轮转。每次启动/停止会插入一行：
+
+```text
+===== 2026-11-10 10:56:00 start sitl =====
+```
+
+命令：
+
+```bash
+./hidctl logs sitl
+./hidctl logs bridge -n 100
+./hidctl logs sitl -f
+./hidctl logs all -f
+```
+
+日志会持续增长；需要手动清理时：
+
+```bash
+rm -f logs/sitl.log logs/bridge.log
+```
+
+### 6.5 停止与重启
+
+```bash
+./hidctl stop               # 停 bridge，再停 SITL
+./hidctl stop bridge
+./hidctl stop sitl
+
+./hidctl restart            # 全部重启
+./hidctl restart sitl       # 只重启 SITL（bridge 保持并重连）
+./hidctl restart bridge
+```
+
+`stop sitl` 只停 SITL，不停 bridge；bridge 会进入 `waiting` 状态并重试。
+
+### 6.6 重置状态（不是 X-Plane 重置游戏）
 
 #### A. 软重置 SITL（推荐）
 
 ```bash
-./scripts/restart_sitl.sh
+./hidctl restart sitl
 ```
 
-效果：
+- eeprom 保留；
+- 飞控状态清空：disarm、传感器重初始化、home/任务/failsafe 清空；
+- X-Plane 不动；
+- bridge 不重启，自动重连；
+- 插件会断开，重新点 `Connect to SITL → 127.0.0.1:5761`。
 
-- 只重启 SITL，`config/runtime/plane.bin` 保持不变；
-- 飞控状态重置：disarm、传感器重新初始化、home/任务/failsafe 状态清空；
-- 手柄桥不需要重启，它会自动重连 5762；
-- X-Plane 不需要重启；
-- 插件会断开，重新点 `Connect to SITL → 127.0.0.1:5761` 即可。
-
-适合：飞机炸了、状态卡住、想重新开始一次飞行，但不想改配置。
-
-#### B. 重置为默认 SITL 配置（硬重置）
+#### B. 硬重置 eeprom
 
 ```bash
-./scripts/stop_all.sh
-mv config/runtime/plane.bin config/runtime/plane.bin.bak-$(date +%Y%m%d-%H%M%S)
-./scripts/start_sitl.sh
+./hidctl reset eeprom --yes
+./hidctl reset eeprom --yes --no-backup
 ```
 
-然后：
+行为：
 
-1. Configurator 连接 `127.0.0.1:5760`；
-2. 进入 CLI，加载 `config/INAV_SITL_MINIMAL_NODEFAULTS.txt`；
-3. `save`；
-4. SITL 重启后重连 Configurator；
-5. 重新加载 INAV Surfwing / 重连插件 5761。
+1. 必须 `--yes`；
+2. 停 bridge + SITL；
+3. **默认备份**当前 `config/runtime/plane.bin`；`--no-backup` 才跳过；
+4. 删除 eeprom；
+5. 只启动 SITL（默认配置，不是本项目配置）；
+6. 输出备份路径和下一步提示；
+7. 不启动 bridge。
 
-注意：删除 eeprom 后 SITL 先生成的是**默认配置**，不是本项目配置；必须再加载 CLI。这个过程与 X-Plane 的“重置游戏/重置飞行”无关，X-Plane 可以一直开着。
+然后 Configurator 连 5760 → CLI 加载 `config/INAV_SITL_MINIMAL_NODEFAULTS.txt` → `save` → 重连插件 → `./hidctl start bridge`。
 
-#### C. 完全重启
+### 6.7 备份与恢复 eeprom
 
 ```bash
-./scripts/stop_all.sh
-./scripts/start_xplane.sh
-./scripts/start_sitl.sh
-./scripts/start_bridge.sh
+./hidctl backup eeprom [--name before-pid]
+./hidctl backups
+./hidctl restore eeprom config/runtime/backups/plane-20261110-105600.bin --yes
 ```
+
+- `backup eeprom` 生成：
+  ```text
+  config/runtime/backups/plane-YYYYmmdd-HHMMSS[-label].bin
+  ```
+- `backups` 按时间倒序列出。
+- `restore eeprom`：
+  1. 必须 `--yes`；
+  2. 停所有组件；
+  3. 默认先备份当前 eeprom（`--no-backup` 可跳过）；
+  4. 覆盖 `config/runtime/plane.bin`；
+  5. 默认 `start all`；`--no-start` 只恢复不启动。
+- 备份用途：新配置失败时快速回滚；保留尚未同步到 `.txt` 的 Configurator Save；对比不同配置。
+- 备份是 32 KB 二进制 eeprom 快照，**不能手改**；恢复时整文件替换。
+- 备份与 INAV SITL 版本相关；换版本后旧 eeprom 可能不兼容。
+- `config/runtime/backups/` 已被 `.gitignore` 排除。
+
+### 6.8 完全重启
+
+```bash
+./hidctl stop
+./hidctl start
+```
+
+X-Plane 不用重启；如果 SITL 重启过，插件需要重新连接。
 
 ---
 
@@ -678,15 +731,15 @@ config/INAV_SITL_MINIMAL_NODEFAULTS.txt
 | 没有 `INAV HITL/SITL` 菜单 | 没加载 INAV Surfwing；插件是 Aircraft 插件 | 加载 `INAV Surfwing`；Select Aircraft 里勾选 `Show extra aircraft from old versions` |
 | `UNSUPPORTED AIRCRAFT TYPE` | SITL 平台不是 AIRPLANE | Configurator → Mixer → Platform `AIRPLANE`；或加载已包含 `set platform_type = AIRPLANE` 的配置 |
 | `SUPPORTED OSD TYPE NOT FOUND` | 没有 MSP DisplayPort/HD OSD | UART4 设为 `MSP DisplayPort`，OSD video `AVATAR`，OSD feature 打开 |
-| `unable to arm no rc link` / `FS` | 手柄桥没运行，5762 没有 MSP 帧 | 启动 `scripts/hid2msp.py`；`./scripts/check_ports.sh` 确认 5762 |
+| `unable to arm no rc link` / `FS` | 手柄桥没运行，5762 没有 MSP 帧 | 启动 `./hidctl start bridge`；用 `./hidctl status` 确认 5762 |
 | 只有 3 个模式 | 旧版用 SWC 做 2×3，SWC 没真正改变 CH6 | 当前版本已改成旋钮直接 6 档；确认 CH8 是否 1000/1200/…/2000 |
-| Pitch 反向 | `reverse` 方向不对 | 改 `config/hid2msp_inav.json` 里 CH2 的 `reverse`，重启桥 |
+| Pitch 反向 | `reverse` 方向不对 | 改 `config/hid2msp_inav.json` 里 CH2 的 `reverse`，执行 `./hidctl restart bridge` |
 | 启动桥就自动解锁 | SWB 在高位 | 先拨 SWB 低位，确认 CH7=1000 |
 | `INS_GRAVITY_CMSS` 大字体 | 真机 IMU 校准 system message | 用精简配置，删除 `ins_gravity_cmss`；SITL 值为 0 |
 | SITL CLI 加载崩溃 | `defaults noreboot` + 连续灌命令 | 删除/备份 `config/runtime/plane.bin`，用全新 eeprom + `config/INAV_SITL_MINIMAL_NODEFAULTS.txt` |
 | Gatekeeper 拦截插件 | quarantine | `xattr -rd com.apple.quarantine .../NK_FPVSurfwing` |
 | Apple Silicon 上 X-Plane 11 打不开 | X-Plane 11 是 x86_64 | 安装 Rosetta 2；`softwareupdate --install-rosetta --agree-to-license` |
-| 端口被占用 | 旧 SITL/桥没退 | `pkill -f inav_SITL`、`pkill -f hid2msp.py`，再 `./scripts/check_ports.sh` |
+| 端口被占用 | 旧 SITL/桥没退 | `./hidctl stop`，再 `./hidctl status` |
 
 ---
 
@@ -720,7 +773,7 @@ config/INAV_SITL_MINIMAL_NODEFAULTS.txt
 - 这是仿真环境，但 **NAV LAUNCH 永久启用**；解锁前确认模型/桨叶周围无人。
 - 真机配置文件是只读参考，不要直接把 `config/INAV_SITL_MINIMAL_NODEFAULTS.txt` 刷入真机。
 - 真机使用前重新检查：传感器校准、 failsafe、arm 开关方向、模式优先级、电机/舵机方向。
-- 修改 `config/hid2msp_inav.json` 后重启桥，确认 Configurator 的 CH1–CH9 再解锁。
+- 修改 `config/hid2msp_inav.json` 后执行 `./hidctl restart bridge`，确认 Configurator 的 CH1–CH9 再解锁。
 
 ---
 
