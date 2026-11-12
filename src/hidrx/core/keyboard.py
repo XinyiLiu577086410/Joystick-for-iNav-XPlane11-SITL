@@ -60,6 +60,21 @@ class KeyboardMapper:
         except (IndexError, ValueError):
             self.mode = 0
 
+        self.channels[0] = int(round(self.axes[0]))
+        self.channels[1] = int(round(self.axes[1]))
+        self.channels[2] = int(round(self.axes[2]))
+        self.channels[3] = int(round(self.axes[3]))
+        self.channels[5] = PWM_MAX if self.wp else PWM_MIN
+        self.channels[6] = PWM_MAX if self.armed else PWM_MIN
+        self.channels[7] = MODE_VALUES[self.mode]
+        self.channels[8] = PWM_MAX
+
+        # A key held during the switch must not create a new arm/mode edge.
+        self.previous = {
+            action: bool(self.keyboard.is_down(binding))
+            for action, binding in self.config.keys.items()
+        }
+
     def poll(self) -> List[int]:
         now = time.monotonic()
         dt = min(0.1, max(0.0, now - self.last))

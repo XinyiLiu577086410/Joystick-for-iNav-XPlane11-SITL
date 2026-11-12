@@ -156,6 +156,21 @@ class KeyboardMapperTests(unittest.TestCase):
         keyboard.bindings["nav_wp"] = True
         self.assertEqual(mapper.poll()[5], 1000)
 
+    def test_restore_preserves_arm_mode_and_wp(self) -> None:
+        config = BridgeConfig(
+            platform="fake",
+            keyboard=keyboard_config("keyboard"),
+        )
+        keyboard = FakeKeyboard(backend="fake")
+        mapper = KeyboardMapper(config.keyboard, keyboard)
+        last = [1500, 1500, 1200, 1500, 1500, 1000, 2000, 1600, 2000]
+        mapper.restore_channels(last)
+        channels = mapper.poll()
+        self.assertEqual(channels[2], 1200)
+        self.assertEqual(channels[5], 1000)
+        self.assertEqual(channels[6], 2000)
+        self.assertEqual(channels[7], 1600)
+
 
 if __name__ == "__main__":
     unittest.main()
