@@ -64,45 +64,92 @@ class JoystickSetupService:
         prompt: Callable[[str], None] = lambda text: None,
     ) -> BridgeConfig:
         specs = (
-            ("roll", 1, "bipolar"),
-            ("pitch", 2, "bipolar"),
-            ("yaw", 4, "bipolar"),
-            ("throttle", 3, "unipolar"),
+            (
+                "roll",
+                1,
+                "bipolar",
+                "先把横滚摇杆回中，然后只把横滚摇杆向左或向右打到最大，保持约 1 秒再松开",
+            ),
+            (
+                "pitch",
+                2,
+                "bipolar",
+                "先松开所有摇杆，然后只把俯仰摇杆向上或向下打到最大，保持约 1 秒再松开",
+            ),
+            (
+                "yaw",
+                4,
+                "bipolar",
+                "先松开所有摇杆，然后只把偏航摇杆向左或向右打到最大，保持约 1 秒再松开",
+            ),
+            (
+                "throttle",
+                3,
+                "unipolar",
+                "先把油门拉到最低，再缓慢推到最高，保持约 1 秒再松开",
+            ),
         )
         axes: List[AxisMap] = []
-        used_axes: set = set()
-        for label, channel, kind in specs:
-            prompt(f"Move the {label} stick to its maximum and hold it")
-            axis, delta = detect_axis(device, self.timeout)
-            if axis in used_axes:
-                raise SetupError(f"axis {axis} was already assigned")
-            used_axes.add(axis)
+        used_axes: dict[int, str] = {}
+        for label, channel, kind, instruction in specs:
+            for attempt in range(3):
+                suffix = "" if attempt == 0 else "（上一次检测到重复轴，请重新做一次）"
+                prompt(f"CH{channel} {label}：{instruction}{suffix}")
+                axis, delta = detect_axis(device, self.timeout)
+                if axis in used_axes:
+                    prompt(
+                        f"检测到 axis {axis} 已经是 {used_axes[axis]} 的轴；"
+                        f"请松开所有摇杆，只移动 {label} 摇杆，再试一次"
+                    )
+                    continue
+                used_axes[axis] = label
+                axes.append(
+                    AxisMap(
+                        axis=axis,
+                        channel=channel,
+                        kind=kind,
+                        reverse=delta < 0,
+                        trim=PWM_MIN if kind == "unipolar" else 1500,
+                    )
+                )
+                time.sleep(0.3)
+                break
+            else:
+                raise SetupError(
+                    f"{label}: 连续 3 次检测到已被其他通道占用的轴（"
+                    + ", ".join(f"axis {number}={name}" for number, name in used_axes.items())
+                    + "）；请确认只移动对应的摇杆"
+                )
+
+        for attempt in range(3):
+            suffix = "" if attempt == 0 else "（上一次检测到重复轴，请重新做一次）"
+            prompt(
+                "CH8 mode：先把模式旋钮依次经过 6 个档位，然后停在任意档并保持约 1 秒"
+                + suffix
+            )
+            mode_axis, _ = detect_axis(device, self.timeout)
+            if mode_axis in used_axes:
+                prompt(
+                    f"检测到 axis {mode_axis} 已经是 {used_axes[mode_axis]} 的轴；"
+                    "模式档位需要一个独立的旋钮轴，请换一个旋钮再试"
+                )
+                continue
+            used_axes[mode_axis] = "mode"
             axes.append(
                 AxisMap(
-                    axis=axis,
-                    channel=channel,
-                    kind=kind,
-                    reverse=delta < 0,
-                    trim=PWM_MIN if kind == "unipolar" else 1500,
+                    axis=mode_axis,
+                    channel=8,
+                    kind="multi",
+                    levels=6,
+                    values=list(MODE_VALUES),
                 )
             )
-            time.sleep(0.2)
+            time.sleep(0.3)
+            break
+        else:
+            raise SetupError("mode: 连续 3 次检测到已占用轴；模式档位必须使用独立旋钮")
 
-        prompt("Move the mode knob through all six positions")
-        mode_axis, _ = detect_axis(device, self.timeout)
-        if mode_axis in used_axes:
-            raise SetupError(f"mode axis {mode_axis} was already assigned")
-        axes.append(
-            AxisMap(
-                axis=mode_axis,
-                channel=8,
-                kind="multi",
-                levels=6,
-                values=list(MODE_VALUES),
-            )
-        )
-
-        prompt("Press the arm button")
+        prompt("CH7 arm：按一下平时用于解锁/上锁的按钮")
         arm_button = detect_button(device, self.timeout)
         buttons = [ButtonMap(button=arm_button, channel=7, toggle=True)]
 
