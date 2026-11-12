@@ -33,6 +33,12 @@ class SitlService:
 
     def start(self, selection: InavSelection, timeout: float = 10.0) -> ProcessHandle:
         self.inav.ensure_eeprom(selection)
+        ports = tuple(self.base_port + offset for offset in range(4))
+        busy = [port for port in ports if self.process.port_listening(port)]
+        if busy:
+            raise SitlError(
+                f"SITL ports already in use: {busy}; stop the existing SITL first"
+            )
         self.paths.logs_dir.mkdir(parents=True, exist_ok=True)
         handle = self.process.spawn(
             ProcessSpec(

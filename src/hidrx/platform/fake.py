@@ -31,6 +31,7 @@ class FakeProcessManager:
     spawned: List[ProcessSpec] = field(default_factory=list)
     alive: Dict[int, ProcessHandle] = field(default_factory=dict)
     open_ports: set = field(default_factory=set)
+    ports_after_spawn: set = field(default_factory=set)
     next_pid: int = 1000
     fail_spawn: bool = False
 
@@ -41,6 +42,7 @@ class FakeProcessManager:
         self.next_pid += 1
         self.spawned.append(spec)
         self.alive[handle.pid] = handle
+        self.open_ports.update(self.ports_after_spawn)
         return handle
 
     def stop(self, handle: ProcessHandle) -> None:

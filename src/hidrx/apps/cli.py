@@ -339,6 +339,12 @@ def cmd_start(context: Context, args: argparse.Namespace) -> int:
     plan = context.config.plan(config, args.input)
     selection = context.inav.resolve(args.inav_version, args.inav_path)
 
+    needed = ["sitl", "bridge"] if args.component == "all" else [args.component]
+    running = [name for name in needed if _alive(context, name) is not None]
+    if running:
+        print(f"already running: {', '.join(running)}; use restart instead", file=sys.stderr)
+        return 1
+
     started = []
     try:
         if args.component in ("all", "sitl"):

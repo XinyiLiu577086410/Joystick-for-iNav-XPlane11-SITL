@@ -911,12 +911,13 @@ Linux 需要 `xvfb-run` 才能测 X11 键盘/前台窗口；Wayland 只测降级
 ## 16. 实施进度
 
 - **Phase 0：完成** — `cross-platform` 分支已创建。
-- **Phase 1：完成** — `src/hidrx/core/` 已抽出 MSP、通道映射、配置、启动门禁；当前 76 个 unittest 通过。
+- **Phase 1：完成** — `src/hidrx/core/` 已抽出 MSP、通道映射、配置、启动门禁；当前 77 个 unittest 通过。
 - **Phase 2：完成（骨架）** — `platform/base.py` 接口、`platform/fake.py` 内存实现、`tests/test_fake_platform.py` 已就位。
 - **Phase 3：完成** — Windows `paths.py`、`processes.py`、`keyboard.py`、`xplane.py`、`inav_locator.py`、`platform.py` 与 `platform/factory.py` 已完成；键盘、X-Plane、INAV 定位均已接入。
 - **Phase 4：完成（代码）** — macOS `paths.py`、`keyboard.py`、`xplane.py`、`inav_locator.py`、`platform.py` 与共享 `posix/processes.py` 已完成；macOS 暂无前台窗口门禁（`foreground_gate=False`），未在真实 macOS 冒烟。
 - **Phase 5：完成（代码）** — Linux `paths.py`、`keyboard.py`（X11 + Wayland 降级）、`xplane.py`、`inav_locator.py`、`platform.py` 已完成；未在真实 X11 桌面冒烟。
 - **Bridge 运行时：完成（代码）** — `core/keyboard.py`、`core/bridge.py`、`apps/bridge.py` 已实现手柄/键盘回退、掉线暂停发帧不退出、重连收回；`BridgeService` 改为启动 `python -m hidrx.apps.bridge`。
+- **重复启动保护：完成（代码）** — CLI 启动前检查 SITL/bridge 已运行；`SitlService` 发现 5760–5763 任一端口已占用时拒绝再启动。
 - **Status：完成（代码）** — `services/status.py` 汇总组件/INAV/config/端口/X-Plane；CLI `status` 已改用该服务。
 - **Doctor：完成（代码）** — `services/doctor.py` 检查平台、键盘能力、X-Plane、HITL 插件、INAV 安装/选择/eeprom、配置与启动门禁；CLI `doctor` 用 OK/WARN/FAIL 输出并在失败时返回 1。
 - **Eeprom：完成（代码）** — `services/eeprom.py` 按版本备份/列表/恢复/重置；CLI `backup eeprom`、`backups`、`restore eeprom`、`reset --yes`。
@@ -924,6 +925,6 @@ Linux 需要 `xvfb-run` 才能测 X11 键盘/前台窗口；Wayland 只测降级
 - **Phase 6：部分完成** — `services/inav.py` 支持 `--inav-path` / `--inav-version` / 环境变量 / active / 自动最高版本，按版本隔离 eeprom/meta/CLI 配置，版本不匹配拒绝。
 - **Phase 7：部分完成** — `apps/cli.py` 已提供 `inav list/use/check`、`config check/load`、`setup keyboard/joystick`、`start/stop/restart/logs/status/doctor`、`backup/backups/restore/reset`、`--input` 与版本参数。
 - **文档：完成（初稿）** — 根 `README.md` 已改为三平台用法，包含首次 setup、INAV 版本、输入模式、eeprom、doctor、旧 `hidctl` 迁移表和当前限制。
-- **Phase 8：进行中** — `.github/workflows/cross-platform.yml` 已加入 Windows/macOS/Linux 矩阵；尚未在 GitHub 上跑过。
-- **Phase 4+：进行中** — 新 bridge 运行时已接入；完整 CLI 兼容、CI 实跑、真实三平台验证待做。
+- **Phase 8：完成（首轮）** — `.github/workflows/cross-platform.yml` 已在 GitHub Actions 上连续通过 Windows/macOS/Ubuntu（最近一次 run 5，README 提交）。
+- **Phase 4+：进行中** — 新 bridge 运行时已接入；完整 CLI 兼容、真实三平台交互验证待做。
 
