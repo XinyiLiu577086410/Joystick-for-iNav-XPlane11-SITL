@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
-from ..core.config import ConfigError
+from ..core.config import ConfigError, keyboard_complete, has_hid_mapping
 from ..models import InavSelection
 from ..platform.base import Platform
 from .config import ConfigService
@@ -28,6 +29,7 @@ class StatusReport:
     inav: Optional[dict] = None
     inav_error: str = ""
     config: dict = field(default_factory=dict)
+    input: dict = field(default_factory=dict)
     ports: Dict[int, bool] = field(default_factory=dict)
     xplane: Optional[dict] = None
 
@@ -45,6 +47,7 @@ class StatusReport:
             "inav": self.inav,
             "inav_error": self.inav_error,
             "config": self.config,
+            "input": self.input,
             "ports": {str(port): open_ for port, open_ in self.ports.items()},
             "xplane": self.xplane,
         }
@@ -94,6 +97,19 @@ class StatusService:
         try:
             config = self.config.load()
             report.config = {"path": str(self.config.config_path), "loaded": True}
+            state_path = self.config.config_path.parent / "runtime" / "bridge_state.json"
+            active = None
+            if state_path.is_file():
+                try:
+                    active = str(json.loads(state_path.read_text(encoding="utf-8")).get("input", ""))
+                except (OSError, json.JSONDecodeError, AttributeError):
+                    active = None
+            report.input = {
+                "source": config.keyboard.source,
+                "active": active or "not running",
+                "keyboard_configured": keyboard_complete(config.keyboard),
+                "hid_configured": has_hid_mapping(config),
+            }
             try:
                 self.config.plan(config)
             except Exception as exc:

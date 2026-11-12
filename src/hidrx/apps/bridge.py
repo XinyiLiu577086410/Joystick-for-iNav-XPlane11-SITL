@@ -67,6 +67,7 @@ def main(argv: Optional[list] = None) -> int:
         gamepad_factory=PygameGamepad,
         keyboard_factory=lambda: KeyboardMapper(config.keyboard, platform.keyboard),
         log=lambda message: print(message, flush=True),
+        state_path=Path(args.config).parent / "runtime" / "bridge_state.json",
     )
     try:
         return runner.run()

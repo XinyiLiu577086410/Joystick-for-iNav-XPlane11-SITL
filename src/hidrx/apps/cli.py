@@ -420,6 +420,12 @@ def cmd_status(context: Context, args: argparse.Namespace) -> int:
     for name, component in report.components.items():
         state = f"running pid={component.pid}" if component.running else "stopped"
         print(f"{name:9} {state}")
+    if report.input:
+        print(
+            f"input     {report.input.get('source')} -> {report.input.get('active')} "
+            f"(keyboard={report.input.get('keyboard_configured')}, "
+            f"hid={report.input.get('hid_configured')})"
+        )
     if report.inav is not None:
         print(f"inav      {report.inav['version']} ({report.inav['source']})")
         print(f"eeprom    {report.inav['eeprom']}")

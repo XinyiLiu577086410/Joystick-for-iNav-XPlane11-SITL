@@ -63,6 +63,14 @@ class ChannelTests(unittest.TestCase):
         self.assertEqual(config.axes, [])
         self.assertEqual(config.keyboard.keys, {})
 
+    def test_safe_initial_channels(self) -> None:
+        channels = build_channels(BridgeConfig(), [], [], {}, {})
+        self.assertEqual(channels[2], 1000)  # throttle
+        self.assertEqual(channels[5], 1000)  # CH6 NAV WP
+        self.assertEqual(channels[6], 1000)  # CH7 disarmed
+        self.assertEqual(channels[7], 1000)  # CH8 ANGLE
+        self.assertEqual(channels[8], 2000)  # CH9 NAV LAUNCH
+
 
 if __name__ == "__main__":
     unittest.main()

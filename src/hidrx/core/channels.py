@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Sequence
 
-from ..constants import CHANNEL_COUNT, PWM_MAX, PWM_MID, PWM_MIN
+from ..constants import CHANNEL_COUNT, MODE_VALUES, PWM_MAX, PWM_MID, PWM_MIN
 
 if TYPE_CHECKING:
     from .config import BridgeConfig
@@ -118,7 +118,11 @@ def build_channels(
     previous: Dict[int, bool],
 ) -> List[int]:
     channels = [PWM_MID] * CHANNEL_COUNT
-    channels[2] = PWM_MIN
+    channels[2] = PWM_MIN  # throttle low
+    channels[5] = PWM_MIN  # CH6 NAV WP off
+    channels[6] = PWM_MIN  # CH7 disarmed
+    channels[7] = MODE_VALUES[0]  # CH8 ANGLE
+    channels[8] = PWM_MAX  # CH9 NAV LAUNCH
 
     for mapping in config.axes:
         if mapping.axis < len(axes):

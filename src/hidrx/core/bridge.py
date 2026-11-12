@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import os
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 from ..constants import INPUT_AUTO, INPUT_KEYBOARD
@@ -30,6 +33,7 @@ class BridgeRunner:
     period: float = 0.02
     reconnect_interval: float = 2.0
     log: Callable[[str], None] = lambda message: None
+    state_path: Optional[Path] = None
 
     gamepad: Optional[GamepadDevice] = None
     keyboard: Optional[KeyboardMapper] = None
@@ -46,11 +50,31 @@ class BridgeRunner:
     def fallback_available(self) -> bool:
         return self.input_source == INPUT_AUTO and keyboard_complete(self.config.keyboard) and self.config.keyboard.enabled
 
+    def _set_state(self, value: str) -> None:
+        if self.state_path is None:
+            return
+        try:
+            self.state_path.parent.mkdir(parents=True, exist_ok=True)
+            self.state_path.write_text(
+                json.dumps(
+                    {
+                        "input": value,
+                        "pid": os.getpid(),
+                        "updated": time.time(),
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        except OSError:
+            pass
+
     def _open_gamepad(self) -> bool:
         try:
             self.gamepad = self.gamepad_factory()
             self.toggles.clear()
             self.previous_buttons.clear()
+            self._set_state("gamepad")
             self.log("gamepad connected")
             return True
         except Exception as exc:
@@ -63,6 +87,7 @@ class BridgeRunner:
             self.keyboard = self.keyboard_factory()
             if self.last_channels is not None:
                 self.keyboard.restore_channels(self.last_channels)
+            self._set_state("keyboard")
             self.log("keyboard enabled")
             return True
         except Exception as exc:
@@ -72,6 +97,7 @@ class BridgeRunner:
 
     def _enter_waiting(self) -> None:
         self.waiting = True
+        self._set_state("waiting")
         self.log("RC paused; waiting for gamepad (SITL should failsafe)")
 
     def start(self) -> None:
@@ -145,6 +171,7 @@ class BridgeRunner:
         return 0
 
     def close(self) -> None:
+        self._set_state("stopped")
         if self.gamepad is not None:
             try:
                 self.gamepad.close()
