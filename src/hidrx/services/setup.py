@@ -42,7 +42,11 @@ class KeyboardSetupService:
             self.keyboard.validate(binding)
             canonical = binding.strip().lower()
             if canonical in used:
-                raise SetupError(f"「{label}」的按键 {binding!r} 已被其他项使用")
+                previous = KEYBOARD_ACTION_LABELS.get(used[canonical], used[canonical])
+                raise SetupError(
+                    f"「{label}」的按键 {binding!r} 已被「{previous}」使用；"
+                    "请换一个按键，重新运行 setup keyboard"
+                )
             used[canonical] = action
             keys[action] = binding
         return keys

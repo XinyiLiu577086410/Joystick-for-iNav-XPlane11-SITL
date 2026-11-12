@@ -208,9 +208,16 @@ def cmd_setup(context: Context, args: argparse.Namespace) -> int:
             label = KEYBOARD_ACTION_LABELS.get(action, action)
             print(f"\n{label}：按下按键或组合键（30 秒超时）...")
 
+        def capture(action: str) -> str | None:
+            label = KEYBOARD_ACTION_LABELS.get(action, action)
+            binding = context.platform.keyboard.capture(30.0)
+            if binding:
+                print(f"已采集：{label} = {binding}")
+            return binding
+
         try:
             keys = service.capture_all(
-                lambda action: context.platform.keyboard.capture(30.0),
+                capture,
                 prompt=prompt,
             )
             service.save(keys)
