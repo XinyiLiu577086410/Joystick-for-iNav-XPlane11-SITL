@@ -14,6 +14,7 @@ from ..models import ProcessHandle
 from ..platform.factory import create_platform
 from ..services.bridge import BridgeService
 from ..services.config import ConfigService
+from ..services.doctor import DoctorService
 from ..services.inav import InavError, InavService
 from ..services.runtime import RuntimeStore
 from ..services.setup import KeyboardSetupService, SetupError
@@ -256,22 +257,23 @@ def cmd_status(context: Context, args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(context: Context) -> int:
-    print(f"platform  {context.platform.id}")
-    capabilities = context.platform.keyboard.capabilities()
-    print(
-        f"keyboard  backend={context.platform.keyboard.backend} "
-        f"global={capabilities.global_keyboard} foreground={capabilities.foreground_gate}"
-    )
-    xplane = context.platform.xplane.locate()
-    print(f"xplane    {xplane.path if xplane else 'not found'}")
-    installs = context.inav.list()
-    print(f"inav      {', '.join(item.version for item in installs) or 'none'}")
-    try:
-        context.config.load()
-        print(f"config    {context.config.config_path} (present)")
-    except ConfigError as exc:
-        print(f"config    ERROR {exc}")
-    return 0
+    checks = DoctorService(
+        context.platform,
+        context.inav,
+        context.config,
+        context.store,
+    ).collect()
+    failed = 0
+    for check in checks:
+        if check.ok:
+            status = "OK  "
+        elif check.warning:
+            status = "WARN"
+        else:
+            status = "FAIL"
+            failed += 1
+        print(f"{status} {check.name:15} {check.detail}")
+    return 1 if failed else 0
 
 
 def main(argv=None) -> int:
