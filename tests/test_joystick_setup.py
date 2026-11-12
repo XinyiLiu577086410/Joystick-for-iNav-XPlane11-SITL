@@ -43,7 +43,9 @@ class DetectionTests(unittest.TestCase):
         self.assertAlmostEqual(delta, 0.9)
 
     def test_detect_button(self) -> None:
-        device = FakeGamepad([([0.0], [0, 0]), ([0.0], [0, 1])])
+        device = FakeGamepad(
+            [([0.0], [0, 0]), ([0.0], [0, 1]), ([0.0], [0, 0])]
+        )
         self.assertEqual(detect_button(device, timeout=1.0), 1)
 
     def test_detect_button_already_held_is_not_auto_accepted(self) -> None:
@@ -51,9 +53,10 @@ class DetectionTests(unittest.TestCase):
         with self.assertRaises(SetupError):
             detect_button(device, timeout=0.1)
 
-    def test_detect_button_release(self) -> None:
+    def test_detect_button_requires_return(self) -> None:
         device = FakeGamepad([([0.0], [1, 0]), ([0.0], [0, 0])])
-        self.assertEqual(detect_button(device, timeout=1.0), 0)
+        with self.assertRaises(SetupError):
+            detect_button(device, timeout=0.1)
 
     def test_timeout(self) -> None:
         device = FakeGamepad([([0.0], [0, 0])])
@@ -92,7 +95,8 @@ class SetupSaveTests(unittest.TestCase):
             ([0.0, 0.0], [0, 0]),  # NAV WP low
             ([0.0, 0.0], [0, 1]),  # NAV WP high
             ([0.0, 0.0], [0, 0]),  # arm baseline
-            ([0.0, 0.0], [1, 0]),  # arm
+            ([0.0, 0.0], [1, 0]),  # arm press
+            ([0.0, 0.0], [0, 0]),  # arm release/return
         ]
 
     def test_capture_and_save_preserves_keyboard(self) -> None:

@@ -57,18 +57,27 @@ def detect_button(
     timeout: float = 15.0,
     interval: float = 0.02,
 ) -> int:
+    """Wait for one button to change and then return to its original state."""
     _, baseline = device.snapshot()
-    held = [index for index, pressed in enumerate(baseline) if pressed]
+    target: int | None = None
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         _, buttons = device.snapshot()
-        for index, pressed in enumerate(buttons):
-            was_pressed = index < len(baseline) and baseline[index]
-            if bool(pressed) != bool(was_pressed):
-                return index
+        if target is None:
+            changed = [
+                index
+                for index, pressed in enumerate(buttons)
+                if index < len(baseline) and bool(pressed) != bool(baseline[index])
+            ]
+            if len(changed) == 1:
+                target = changed[0]
+            elif len(changed) > 1:
+                pass  # ignore ambiguous multi-button changes; wait for one switch
+        else:
+            if target < len(buttons) and bool(buttons[target]) == bool(baseline[target]):
+                return target
         time.sleep(interval)
-    hint = f" (button(s) {held} were already held; release/toggle one)" if held else ""
-    raise SetupError("timed out waiting for a button change" + hint)
+    raise SetupError("timed out waiting for a button to change and return")
 
 
 def detect_switch(
@@ -274,8 +283,8 @@ class JoystickSetupService:
         ]
 
         prompt(
-            "arm：按一下平时用于解锁/上锁的按钮，保持约 0.2 秒；"
-            "如果是拨动开关，请拨动一次（拨到另一侧再拨回）"
+            "arm：按一下平时用于解锁/上锁的按钮；"
+            "如果是拨动开关，请拨到另一侧，再拨回原位"
         )
         for attempt in range(3):
             arm_button = detect_button(device, max(self.timeout, 15.0))
