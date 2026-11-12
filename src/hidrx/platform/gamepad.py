@@ -7,6 +7,10 @@ from typing import List, Tuple
 
 from ..models import GamepadDevice
 
+import os
+
+os.environ.setdefault("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1")
+
 
 class GamepadError(RuntimeError):
     pass
@@ -25,7 +29,13 @@ class PygameGamepad:
             raise GamepadError("pygame is not installed: python -m pip install pygame") from exc
         self._pygame = pygame
         pygame.init()
-        pygame.joystick.init()
+        for _ in range(2):
+            pygame.joystick.init()
+            pygame.event.pump()
+            pygame.event.get()
+            if pygame.joystick.get_count() > 0:
+                break
+            pygame.joystick.quit()
         if pygame.joystick.get_count() == 0:
             raise GamepadError("no joystick/gamepad detected by SDL2")
         self._joy = pygame.joystick.Joystick(0)
