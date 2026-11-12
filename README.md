@@ -175,6 +175,9 @@ hitl    installed v1.5.0  link: disconnected  (X-Plane plugin)
 
 ### 4.1 键盘控制（无手柄时自动启用）
 
+键盘输入只在 **X-Plane 是当前最上层窗口** 时生效；切到浏览器、终端或其他软件时，
+按键会被忽略，摇杆自动回中、油门保持、解锁状态不变，不会误触。
+
 | 键 | 功能 |
 |---|---|
 | `W` / `S` | Pitch 上 / 下 |
@@ -183,10 +186,40 @@ hitl    installed v1.5.0  link: disconnected  (X-Plane plugin)
 | `1`–`6` | 六段模式：ANGLE / HORIZON / MANUAL / CRUISE / POSHOLD / RTH |
 | `Space` | 按一下切换解锁/上锁 |
 | `Left Shift` | 按住增加油门 |
-| `Left Ctrl` | 按住减少油门 |
+| `Left Control` | 按住减少油门 |
 
-键名是 **Windows 键名**，支持 `a`–`z`、`0`–`9`、`space`、`left_shift`、
-`left_control`、`left_alt`、`f1`–`f12`、方向键等。改完执行：
+每个键都可以改成 **组合键**，例如解锁用 `ctrl+shift+space`：
+
+```powershell
+.\hidctl.cmd setup keyboard
+```
+
+向导会逐个动作要求按键：
+
+- 单个键：直接按，例如 `w`；
+- 组合键：先按住 `Ctrl` / `Shift` / `Alt` / `Win`，再按主键；
+- `s` 跳过当前动作，`q` 退出且不写入；
+- 结束后自动备份原配置、写入 `config\hid2msp_inav.json` 并校验。
+
+配置里的键盘段：
+
+```json
+"keyboard": {
+  "enabled": true,
+  "source": "auto",
+  "foreground_only": true,
+  "window_process": "X-Plane.exe",
+  "keys": {
+    "arm": "ctrl+shift+space"
+  }
+}
+```
+
+- `foreground_only`：只在前台进程匹配时启用键盘；
+- `window_process`：前台进程名，默认 `X-Plane.exe`；进程查询失败时会退回到窗口标题包含 `X-Plane` 或 `X-System` 的判断；
+- `source` 三种值：`auto`（有手柄用手柄，否则键盘）、`hid`（强制手柄）、`keyboard`（强制键盘）。
+
+改完执行：
 
 ```powershell
 .\hidctl.cmd config check
@@ -194,8 +227,7 @@ hitl    installed v1.5.0  link: disconnected  (X-Plane plugin)
 python scripts\hid2msp.py --keys     # 不接 SITL，直接看键盘通道
 ```
 
-`source` 三种值：`auto`（有手柄用手柄，否则键盘）、`hid`（强制手柄）、
-`keyboard`（强制键盘）。
+注意：`--keys` 监视模式同样遵守 `foreground_only`，调试时要把 X-Plane 切到前台。
 
 ### 4.2 设置向导（重新标定轴和方向）
 
@@ -312,7 +344,7 @@ SITL 启动时**只读** `config\runtime\plane.bin`（eeprom）。
 | `SITL not found` | 没装 Configurator 或路径不同 | 设 `HIDCTL_SITL` 指向 `inav_SITL.exe` |
 | `SITL ports already in use` | 旧 SITL 没退 | `.\hidctl.cmd stop`，再用 `netstat -ano | findstr 5760` 确认 |
 | `bridge exited immediately` | pygame 缺失且键盘不可用，或配置错误 | 看 `logs\bridge.log`；`.\hidctl.cmd doctor` |
-| 键盘没反应 | 焦点在管理员权限的程序上，或桌面会话被锁定 | 用普通权限运行；确认桌面已解锁 |
+| 键盘没反应 | X-Plane 不是前台窗口（`foreground_only`），或焦点在管理员权限的程序上 | 把 X-Plane 切到前台；必要时用普通权限运行 |
 | 手柄没反应 | 没装 pygame，或轴编号不同 | `python scripts\hid2msp.py --list` 看轴/按键编号，再改 JSON |
 | HITL 菜单不出现 | 没加载 INAV Surfwing（插件是 Aircraft 插件） | 加载该机型；勾选 `Show extra aircraft from old versions` |
 | `unable to arm no rc link` | bridge 没运行或没连上 5762 | `.\hidctl.cmd status`；`.\hidctl.cmd start bridge` |

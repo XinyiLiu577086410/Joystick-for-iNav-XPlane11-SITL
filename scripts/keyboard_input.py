@@ -2,23 +2,51 @@
 """Windows keyboard input for hid2msp.py.
 
 Polls global key state with ``GetAsyncKeyState``, so the bridge does not need a
-focused window and needs no special permission.  Windows-only: the macOS
-implementation (CoreGraphics + Input Monitoring) lives on the ``main`` branch.
+focused window and needs no special permission.  Keyboard input is only enabled
+while X-Plane is the foreground window (``keyboard.foreground_only``), and each
+action can be a single key or a modifier combination such as
+``ctrl+shift+space``.
+
+Windows-only: the macOS implementation (CoreGraphics + Input Monitoring) lives
+on the ``main`` branch.
 """
 
 from __future__ import annotations
 
 import ctypes
+import os
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 PWM_MIN, PWM_MID, PWM_MAX = 1000, 1500, 2000
 CHANNEL_COUNT = 16
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
+kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
 user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
 user32.GetAsyncKeyState.restype = ctypes.c_short
+user32.GetForegroundWindow.argtypes = []
+user32.GetForegroundWindow.restype = ctypes.c_void_p
+user32.GetWindowThreadProcessId.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong)]
+user32.GetWindowThreadProcessId.restype = ctypes.c_ulong
+user32.GetWindowTextW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_int]
+user32.GetWindowTextW.restype = ctypes.c_int
+
+kernel32.OpenProcess.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+kernel32.OpenProcess.restype = ctypes.c_void_p
+kernel32.QueryFullProcessImageNameW.argtypes = [
+    ctypes.c_void_p,
+    ctypes.c_ulong,
+    ctypes.c_wchar_p,
+    ctypes.POINTER(ctypes.c_ulong),
+]
+kernel32.QueryFullProcessImageNameW.restype = ctypes.c_int
+kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+kernel32.CloseHandle.restype = ctypes.c_int
+
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 # Windows virtual-key codes (https://learn.microsoft.com/windows/win32/inputdev/virtual-key-codes)
 _VK: Dict[str, int] = {
@@ -118,6 +146,23 @@ for _letter in "abcdefghijklmnopqrstuvwxyz":
 for _digit in "0123456789":
     _VK.setdefault(_digit, ord(_digit))
 
+# Modifier names usable in a combo.  Generic VK_CONTROL / VK_SHIFT / VK_MENU
+# match either side; Win is checked against both left and right.
+_MODIFIERS: Dict[str, int] = {
+    "ctrl": 0x11,
+    "control": 0x11,
+    "shift": 0x10,
+    "alt": 0x12,
+    "option": 0x12,
+    "win": 0x5B,
+    "windows": 0x5B,
+    "cmd": 0x5B,
+    "meta": 0x5B,
+}
+_MODIFIER_ORDER = ("ctrl", "shift", "alt", "win")
+_MODIFIER_VKS = {0x10, 0x11, 0x12, 0x5B, 0x5C}
+_WIN_VKS = (0x5B, 0x5C)
+
 DEFAULT_KEYS: Dict[str, str] = {
     "roll_left": "a",
     "roll_right": "d",
@@ -139,20 +184,111 @@ DEFAULT_KEYS: Dict[str, str] = {
 MODE_VALUES = (1000, 1200, 1400, 1600, 1800, 2000)
 
 
-@dataclass
-class KeyboardConfig:
-    enabled: bool = True
-    source: str = "auto"  # auto | hid | keyboard
-    axis_rate: float = 600.0  # PWM units per second
-    throttle_rate: float = 600.0
-    keys: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_KEYS))
+def _key_down(vk: int) -> bool:
+    return bool(user32.GetAsyncKeyState(vk) & 0x8000)
+
+
+def _modifier_down(vk: int) -> bool:
+    if vk == 0x5B:  # Win: either side
+        return any(_key_down(code) for code in _WIN_VKS)
+    return _key_down(vk)
+
+
+def _display_key_name(vk: int) -> str:
+    preferred = (
+        "space", "enter", "tab", "escape", "backspace", "delete", "insert",
+        "home", "end", "page_up", "page_down", "left", "right", "up", "down",
+        "semicolon", "equals", "comma", "minus", "period", "slash", "backtick",
+        "left_bracket", "right_bracket", "backslash", "quote",
+        "multiply", "add", "subtract", "decimal", "divide",
+    )
+    for name in preferred:
+        if _VK.get(name) == vk:
+            return name
+    if 0x41 <= vk <= 0x5A:
+        return chr(vk).lower()
+    if 0x30 <= vk <= 0x39:
+        return chr(vk)
+    if 0x60 <= vk <= 0x69:
+        return f"num{vk - 0x60}"
+    if 0x70 <= vk <= 0x7B:
+        return f"f{vk - 0x6F}"
+    return f"vk_{vk:02x}"
+
+
+@dataclass(frozen=True)
+class KeyCombo:
+    """A main key plus zero or more modifier keys."""
+
+    vk: int
+    modifiers: Tuple[int, ...] = ()
+    label: str = ""
+
+    def is_down(self) -> bool:
+        if not _key_down(self.vk):
+            return False
+        return all(_modifier_down(code) for code in self.modifiers)
+
+
+def normalize_combo(spec: str) -> str:
+    """Return a canonical ``ctrl+shift+space`` style binding.
+
+    Raises ValueError for unknown keys, duplicate modifiers, modifier-only
+    combinations or more than one main key.
+    """
+    parts = [part.strip().lower() for part in str(spec).split("+") if part.strip()]
+    if not parts:
+        raise ValueError("empty key binding")
+
+    modifiers: List[str] = []
+    main: Optional[str] = None
+    for part in parts:
+        if part in _MODIFIERS:
+            if main is not None:
+                raise ValueError(f"modifier {part!r} must come before the main key")
+            if part not in modifiers:
+                modifiers.append(part)
+        else:
+            if main is not None:
+                raise ValueError("a combination can only contain one main key")
+            main = part
+
+    if main is None:
+        raise ValueError("combination needs a non-modifier key")
+    if main not in _VK:
+        raise ValueError(f"unknown Windows key name: {main!r}")
+    if _VK[main] in _MODIFIER_VKS:
+        raise ValueError(f"{main!r} is a modifier; put it before a normal key")
+
+    canonical_mods = [name for name in _MODIFIER_ORDER if name in modifiers]
+    if len(canonical_mods) != len(modifiers):
+        # Aliases such as control/ctrl both map to the same modifier.
+        canonical_mods = []
+        for name in modifiers:
+            canonical = "ctrl" if _MODIFIERS[name] == 0x11 else (
+                "shift" if _MODIFIERS[name] == 0x10 else (
+                    "alt" if _MODIFIERS[name] == 0x12 else "win"))
+            if canonical not in canonical_mods:
+                canonical_mods.append(canonical)
+        canonical_mods.sort(key=_MODIFIER_ORDER.index)
+
+    return "+".join(canonical_mods + [main])
+
+
+def resolve_combo(spec: str) -> KeyCombo:
+    canonical = normalize_combo(spec)
+    *modifier_names, main_name = canonical.split("+")
+    vk = _VK[main_name]
+    modifiers = tuple(_MODIFIERS[name] for name in modifier_names)
+    return KeyCombo(vk=vk, modifiers=modifiers, label=canonical)
 
 
 def resolve_keycode(name: str) -> int:
-    key = str(name).strip().lower()
-    if key not in _VK:
-        raise ValueError(f"unknown Windows key name: {name!r}")
-    return _VK[key]
+    """Resolve a single key name (kept for older callers and validators)."""
+    combo = resolve_combo(name)
+    if combo.modifiers:
+        raise ValueError(f"{name!r} is a combination, not a single key")
+    return combo.vk
 
 
 def known_key_names() -> List[str]:
@@ -167,8 +303,87 @@ def input_available() -> bool:
         return False
 
 
-def _key_down(vk: int) -> bool:
-    return bool(user32.GetAsyncKeyState(vk) & 0x8000)
+def is_foreground_process(process_name: str = "X-Plane.exe", title_hint: str = "X-Plane") -> bool:
+    """True when the foreground window belongs to ``process_name``.
+
+    Falls back to the window title when the process cannot be queried (for
+    example when X-Plane runs elevated and the bridge does not).
+    """
+    hwnd = user32.GetForegroundWindow()
+    if not hwnd:
+        return False
+
+    pid = ctypes.c_ulong()
+    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    if pid.value:
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid.value)
+        if handle:
+            try:
+                size = ctypes.c_ulong(1024)
+                buffer = ctypes.create_unicode_buffer(size.value)
+                if kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+                    if os.path.basename(buffer.value).casefold() == process_name.casefold():
+                        return True
+            finally:
+                kernel32.CloseHandle(handle)
+
+    if title_hint:
+        title = ctypes.create_unicode_buffer(512)
+        length = user32.GetWindowTextW(hwnd, title, len(title))
+        if length:
+            lowered = title.value.casefold()
+            if title_hint.casefold() in lowered or "x-system" in lowered:
+                return True
+    return False
+
+
+def capture_combo(timeout: float = 30.0) -> Optional[str]:
+    """Wait for the user to press keys and return a canonical combo string.
+
+    Modifiers held when the main key goes down become part of the combo.  The
+    function returns once every involved key has been released.
+    """
+    capture_keys = sorted(
+        {
+            vk
+            for vk in _VK.values()
+            if vk not in _MODIFIER_VKS and vk not in (0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5)
+        }
+    )
+    print("Press the key combination (hold modifiers, then press the main key)...", flush=True)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        main = next((vk for vk in capture_keys if _key_down(vk)), None)
+        if main is None:
+            time.sleep(0.01)
+            continue
+
+        modifiers: List[str] = []
+        for name, vk in (("ctrl", 0x11), ("shift", 0x10), ("alt", 0x12), ("win", 0x5B)):
+            if _modifier_down(vk):
+                modifiers.append(name)
+
+        # Wait for a full release so the next capture does not see the same key.
+        while any(_key_down(vk) for vk in capture_keys) or any(
+            _modifier_down(vk) for vk in (0x11, 0x10, 0x12, 0x5B)
+        ):
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(0.01)
+
+        return "+".join(modifiers + [_display_key_name(main)])
+    return None
+
+
+@dataclass
+class KeyboardConfig:
+    enabled: bool = True
+    source: str = "auto"  # auto | hid | keyboard
+    axis_rate: float = 600.0  # PWM units per second
+    throttle_rate: float = 600.0
+    keys: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_KEYS))
+    foreground_only: bool = True
+    window_process: str = "X-Plane.exe"
 
 
 def _approach(current: float, target: float, rate: float, dt: float) -> float:
@@ -183,12 +398,14 @@ def _approach(current: float, target: float, rate: float, dt: float) -> float:
 class KeyboardInput:
     """Poll Windows key states and produce INAV RC channels."""
 
+    FOREGROUND_RECHECK_SECONDS = 0.5
+
     def __init__(self, config: KeyboardConfig) -> None:
         self.config = config
-        self.keycodes: Dict[str, int] = {}
+        self.combos: Dict[str, KeyCombo] = {}
         for action, key in config.keys.items():
             try:
-                self.keycodes[action] = resolve_keycode(key)
+                self.combos[action] = resolve_combo(key)
             except ValueError as exc:
                 raise RuntimeError(f"keyboard.{action}: {exc}") from exc
 
@@ -203,8 +420,11 @@ class KeyboardInput:
         self.throttle = float(PWM_MIN)
         self.armed = False
         self.mode = 0
-        self.previous: Dict[str, bool] = {name: False for name in self.keycodes}
+        self.previous: Dict[str, bool] = {name: False for name in self.combos}
         self.last = time.monotonic()
+        self._foreground_ok: Optional[bool] = None
+        self._foreground_checked_at = 0.0
+        self._paused_reported = False
 
         if not input_available():
             raise RuntimeError(
@@ -212,13 +432,56 @@ class KeyboardInput:
                 "from this session"
             )
 
+    def _is_active(self) -> bool:
+        if not self.config.foreground_only:
+            return True
+        now = time.monotonic()
+        if (
+            self._foreground_ok is None
+            or now - self._foreground_checked_at >= self.FOREGROUND_RECHECK_SECONDS
+        ):
+            self._foreground_ok = is_foreground_process(self.config.window_process)
+            self._foreground_checked_at = now
+        return bool(self._foreground_ok)
+
     def _states(self) -> Dict[str, bool]:
-        return {action: _key_down(code) for action, code in self.keycodes.items()}
+        return {action: combo.is_down() for action, combo in self.combos.items()}
+
+    def _build_channels(self) -> List[int]:
+        for index in range(4):
+            self.channels[index] = int(round(self.axes[index]))
+        self.channels[4] = PWM_MID
+        self.channels[5] = PWM_MIN
+        self.channels[6] = PWM_MAX if self.armed else PWM_MIN
+        self.channels[7] = MODE_VALUES[self.mode]
+        self.channels[8] = PWM_MAX
+        return list(self.channels)
 
     def poll(self) -> List[int]:
         now = time.monotonic()
         dt = min(0.1, max(0.0, now - self.last))
         self.last = now
+
+        if not self._is_active():
+            # Ignore input while another application is focused, but remember
+            # which keys are physically held so returning to X-Plane with a key
+            # down does not fire a spurious press edge.
+            self.previous = self._states()
+            self.axes[0] = _approach(self.axes[0], PWM_MID, self.config.axis_rate, dt)
+            self.axes[1] = _approach(self.axes[1], PWM_MID, self.config.axis_rate, dt)
+            self.axes[3] = _approach(self.axes[3], PWM_MID, self.config.axis_rate, dt)
+            if not self._paused_reported:
+                print(
+                    "keyboard: X-Plane is not the foreground window - input paused",
+                    flush=True,
+                )
+                self._paused_reported = True
+            return self._build_channels()
+
+        if self._paused_reported:
+            print("keyboard: X-Plane is active - input resumed", flush=True)
+            self._paused_reported = False
+
         states = self._states()
 
         # Arm toggles on press edge; refuse to arm above low throttle.
@@ -268,16 +531,8 @@ class KeyboardInput:
         self.throttle = max(PWM_MIN, min(PWM_MAX, self.throttle))
         self.axes[2] = self.throttle
 
-        for index in range(4):
-            self.channels[index] = int(round(self.axes[index]))
-        self.channels[4] = PWM_MID
-        self.channels[5] = PWM_MIN
-        self.channels[6] = PWM_MAX if self.armed else PWM_MIN
-        self.channels[7] = MODE_VALUES[self.mode]
-        self.channels[8] = PWM_MAX
-
         self.previous = states
-        return list(self.channels)
+        return self._build_channels()
 
     def close(self) -> None:
         return

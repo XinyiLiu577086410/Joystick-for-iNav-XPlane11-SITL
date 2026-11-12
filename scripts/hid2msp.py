@@ -231,6 +231,8 @@ def load_config(path: Optional[str]) -> Config:
             axis_rate=float(raw.get("axis_rate", 600.0)),
             throttle_rate=float(raw.get("throttle_rate", 600.0)),
             keys=keys,
+            foreground_only=bool(raw.get("foreground_only", True)),
+            window_process=str(raw.get("window_process", "X-Plane.exe")),
         )
     return cfg
 

@@ -122,6 +122,8 @@
   "keyboard": {
     "enabled": true,
     "source": "auto",
+    "foreground_only": true,
+    "window_process": "X-Plane.exe",
     "axis_rate": 600,
     "throttle_rate": 600,
     "keys": {

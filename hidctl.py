@@ -52,8 +52,10 @@ if (ROOT / ".deps").is_dir():
     sys.path.insert(0, str(ROOT / ".deps"))
 from keyboard_input import (  # noqa: E402
     DEFAULT_KEYS,
+    capture_combo,
     input_available,
-    resolve_keycode,
+    normalize_combo,
+    resolve_combo,
 )
 
 # ---------------------------------------------------------------------------
@@ -1424,6 +1426,11 @@ def validate_config(path: Path) -> list[str]:
                 value = keyboard.get(field_name, 600)
                 if not isinstance(value, (int, float)) or value <= 0:
                     errors.append(f"keyboard.{field_name}: must be > 0")
+            if not isinstance(keyboard.get("foreground_only", True), bool):
+                errors.append("keyboard.foreground_only: must be true or false")
+            window_process = keyboard.get("window_process", "X-Plane.exe")
+            if not isinstance(window_process, str) or not window_process.strip():
+                errors.append("keyboard.window_process: must be a non-empty string")
             keys = keyboard.get("keys", {}) or {}
             if not isinstance(keys, dict):
                 errors.append("keyboard.keys: must be an object")
@@ -1433,16 +1440,17 @@ def validate_config(path: Path) -> list[str]:
                     if action not in DEFAULT_KEYS:
                         errors.append(f"keyboard.keys.{action}: unknown action")
                     try:
-                        resolve_keycode(key_name)
+                        canonical = normalize_combo(key_name)
+                        resolve_combo(canonical)
                     except ValueError as exc:
                         errors.append(f"keyboard.keys.{action}: {exc}")
-                    lowered = str(key_name).lower()
-                    if lowered in used_keys and used_keys[lowered] != action:
+                        continue
+                    if canonical in used_keys and used_keys[canonical] != action:
                         errors.append(
-                            f"keyboard.keys.{action}: key {key_name!r} already used by "
-                            f"{used_keys[lowered]}"
+                            f"keyboard.keys.{action}: key {canonical!r} already used by "
+                            f"{used_keys[canonical]}"
                         )
-                    used_keys[lowered] = action
+                    used_keys[canonical] = action
 
     return errors
 
@@ -1923,6 +1931,138 @@ def cmd_setup(no_write: bool = False, restart: bool = False) -> int:
     return 0
 
 
+KEYBOARD_SETUP_STEPS = [
+    ("roll_left", "Roll left"),
+    ("roll_right", "Roll right"),
+    ("pitch_up", "Pitch up (pull)"),
+    ("pitch_down", "Pitch down (push)"),
+    ("yaw_left", "Yaw left"),
+    ("yaw_right", "Yaw right"),
+    ("throttle_up", "Throttle up"),
+    ("throttle_down", "Throttle down"),
+    ("arm", "Arm / disarm"),
+    ("mode_1", "Mode 1 ANGLE"),
+    ("mode_2", "Mode 2 HORIZON"),
+    ("mode_3", "Mode 3 MANUAL"),
+    ("mode_4", "Mode 4 CRUISE"),
+    ("mode_5", "Mode 5 POSHOLD"),
+    ("mode_6", "Mode 6 RTH"),
+]
+
+
+def cmd_setup_keyboard(no_write: bool = False, restart: bool = False) -> int:
+    try:
+        data = json.loads(HID_CONFIG.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        err(f"cannot read {display_path(HID_CONFIG)}: {exc}")
+        return 1
+    keyboard = data.get("keyboard")
+    if keyboard is None:
+        keyboard = {}
+    if not isinstance(keyboard, dict):
+        err("keyboard: must be an object")
+        return 1
+
+    keys = dict(DEFAULT_KEYS)
+    keys.update({str(k): str(v) for k, v in (keyboard.get("keys") or {}).items()})
+
+    print("=== keyboard binding setup ===")
+    print("For each action press the key you want. Combinations are supported:")
+    print("hold Ctrl/Shift/Alt/Win, then press the main key.")
+    print("Example: Ctrl+Shift+Space gives 'ctrl+shift+space'.")
+    print("Press Enter to set, 's' to skip, 'q' to quit without writing.\n")
+
+    used: dict[str, str] = {}
+    for action, key in keys.items():
+        try:
+            used.setdefault(normalize_combo(key), action)
+        except ValueError:
+            pass
+
+    try:
+        for action, label in KEYBOARD_SETUP_STEPS:
+            current = keys.get(action, "")
+            print(f"{label:<20} current: {current}")
+            answer = input("  Enter = set, s = skip, q = quit: ").strip().lower()
+            if answer == "q":
+                print("\ncancelled, nothing written")
+                return 130
+            if answer == "s":
+                continue
+            if action == "arm":
+                print("  hint: a combo such as Ctrl+Shift+Space avoids accidental arming.")
+
+            while True:
+                captured = capture_combo(30.0)
+                if captured is None:
+                    err("  timeout, no key captured")
+                    break
+                try:
+                    canonical = normalize_combo(captured)
+                    resolve_combo(canonical)
+                except ValueError as exc:
+                    err(f"  {exc}")
+                    continue
+
+                previous_action = used.get(canonical)
+                if previous_action and previous_action != action:
+                    err(f"  {canonical} is already used by {previous_action}")
+                    continue
+
+                old = keys.get(action)
+                if old and used.get(normalize_combo(old)) == action:
+                    used.pop(normalize_combo(old), None)
+                keys[action] = canonical
+                used[canonical] = action
+                print(f"  -> {canonical}")
+                break
+    except (EOFError, KeyboardInterrupt):
+        print("\ncancelled, nothing written")
+        return 130
+
+    print("\n=== result ===")
+    for action, label in KEYBOARD_SETUP_STEPS:
+        print(f"{label:<20} {keys.get(action, '')}")
+
+    keyboard["keys"] = keys
+    keyboard.setdefault("enabled", True)
+    keyboard.setdefault("source", "auto")
+    keyboard.setdefault("foreground_only", True)
+    keyboard.setdefault("window_process", "X-Plane.exe")
+    data["keyboard"] = keyboard
+
+    if no_write:
+        print("\n--no-write: config not written")
+        return 0
+
+    backup = HID_CONFIG.with_suffix(".json.bak")
+    try:
+        shutil.copyfile(HID_CONFIG, backup)
+        HID_CONFIG.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+    except OSError as exc:
+        err(f"cannot write {HID_CONFIG}: {exc}")
+        return 1
+
+    errors = validate_config(HID_CONFIG)
+    print(f"\nwrote {display_path(HID_CONFIG)} (backup: {display_path(backup)})")
+    if errors:
+        for item in errors:
+            err(item)
+        return 1
+
+    if restart:
+        print("restarting bridge ...")
+        stop_component("bridge")
+        rc = start_bridge()
+        if rc != 0:
+            return rc
+        return 0
+    print("next: .\\hidctl.cmd restart bridge   (or rerun with --restart)")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # MSP capture session
 # ---------------------------------------------------------------------------
@@ -2243,7 +2383,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("doctor")
 
-    setup = sub.add_parser("setup", help="guided HID channel setup (axis, direction, switches)")
+    setup = sub.add_parser("setup", help="guided setup: HID channels or keyboard bindings")
+    setup.add_argument(
+        "target",
+        nargs="?",
+        choices=("hid", "keyboard"),
+        default="hid",
+        help="what to configure (default: hid)",
+    )
     setup.add_argument("--no-write", action="store_true", help="show the result without writing the config")
     setup.add_argument("--restart", action="store_true", help="restart the bridge after writing")
 
@@ -2309,6 +2456,8 @@ def main(argv: list[str] | None = None) -> int:
         if command == "doctor":
             return cmd_doctor()
         if command == "setup":
+            if getattr(args, "target", "hid") == "keyboard":
+                return cmd_setup_keyboard(args.no_write, args.restart)
             return cmd_setup(args.no_write, args.restart)
         if command == "invert":
             return cmd_invert(args.channel, args.restart)
