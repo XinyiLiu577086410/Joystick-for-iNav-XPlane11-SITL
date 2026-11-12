@@ -175,7 +175,7 @@ class Config:
 
 
 def default_config() -> Config:
-    # No built-in HID/keyboard mapping: run `hidctl setup` / `setup keyboard`
+    # No built-in HID/keyboard mapping: run `hidctl setup joystick` / `setup keyboard`
     # once to generate config/hid2msp_inav.json for this machine.
     return Config()
 
@@ -449,7 +449,7 @@ def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
 
     if gamepad is not None and not (cfg.axes or cfg.buttons or cfg.buttons3 or cfg.combine):
         print(
-            "no HID mapping configured; run: .\\hidctl.cmd setup",
+            "no HID mapping configured; run: .\\hidctl.cmd setup joystick",
             file=sys.stderr,
         )
         link.close()

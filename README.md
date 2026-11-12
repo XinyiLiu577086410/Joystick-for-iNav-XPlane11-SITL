@@ -161,16 +161,16 @@ python scripts\hid2msp.py --list
 ```
 
 会打印设备名、轴数/按键数，并实时显示 `axes=[...] buttons=[...]`。轴编号因 SDL/Windows 而异，
-换手柄或换机器后建议跑一次 `.\hidctl.cmd setup`。
+换手柄或换机器后建议跑一次 `.\hidctl.cmd setup joystick`。
 
-### 2.6 首次安装：必须跑 setup
+### 2.6 首次安装：必须跑 setup joystick / setup keyboard
 
 仓库**不再附带**任何默认手柄轴映射或键盘键位。第一次使用必须生成
 `config\hid2msp_inav.json`：
 
 ```powershell
 # 有手柄：标定轴、方向、开关
-.\hidctl.cmd setup
+.\hidctl.cmd setup joystick
 
 # 只用键盘：设置每个动作的键位（支持组合键）
 .\hidctl.cmd setup keyboard
@@ -179,7 +179,7 @@ python scripts\hid2msp.py --list
 两个向导都会在结束时写入 `config\hid2msp_inav.json` 并自动校验。该文件已被
 `.gitignore` 排除，不会随仓库分发；换机器/换手柄/换键位时重新跑对应向导即可。
 
-没有这个文件时，`hidctl.cmd start bridge` 会拒绝启动并提示先运行 `setup`；
+没有这个文件时，`hidctl.cmd start bridge` 会拒绝启动并提示先运行 `setup joystick` / `setup keyboard`；
 即使强行启动，`hid2msp.py` 也会报 `no HID mapping configured` 或
 `keyboard is not configured`。
 
@@ -260,7 +260,7 @@ hitl    installed v1.5.0  link: disconnected  (X-Plane plugin)
 
 ### 4.1 通道表
 
-下面是一份运行 `hidctl.cmd setup` 后的示例；仓库不附带默认映射，实际值以
+下面是一份运行 `hidctl.cmd setup joystick` 后的示例；仓库不附带默认映射，实际值以
 `config\hid2msp_inav.json` 为准：
 
 | 通道 | 功能 | 来源 |
@@ -389,7 +389,7 @@ python scripts\hid2msp.py --keys     # 不接 SITL，直接看键盘通道
 |---|---|
 | `host` / `port` | SITL 的 RC UART，默认 `127.0.0.1:5762` |
 | `rate_hz` | RC 帧率，默认 50 Hz |
-| `axes[].axis` | pygame/SDL 轴编号，用 `--list` 或 `hidctl setup` 确认 |
+| `axes[].axis` | pygame/SDL 轴编号，用 `--list` 或 `hidctl setup joystick` 确认 |
 | `axes[].channel` | 目标 RC 通道（1–16） |
 | `axes[].kind` | `bipolar`（双向）、`unipolar`（单向）、`tri`（三档）、`binary`（二值）、`multi`（多档） |
 | `axes[].trim` | 中位/低端 PWM |
@@ -416,7 +416,7 @@ python scripts\hid2msp.py --keys     # 不接 SITL，直接看键盘通道
 同一只手柄在 macOS 和 Windows 上 SDL 的轴编号可能不同，换机器或换手柄后建议跑一次：
 
 ```powershell
-.\hidctl.cmd setup
+.\hidctl.cmd setup joystick
 ```
 
 向导会依次要求（每一步按 Enter 后采样约 2 秒）：
@@ -439,8 +439,8 @@ python scripts\hid2msp.py --keys     # 不接 SITL，直接看键盘通道
 > 所以副翼向右、油门向上、偏航向右都是"打满时 PWM 变大"，pitch 则是"拉满时 PWM 变小"。
 
 ```powershell
-.\hidctl.cmd setup --no-write    # 只看结果，不写文件
-.\hidctl.cmd setup --restart     # 写完自动重启 bridge
+.\hidctl.cmd setup joystick --no-write    # 只看结果，不写文件
+.\hidctl.cmd setup joystick --restart     # 写完自动重启 bridge
 ```
 
 某个通道检测不到明显变化时会重试 3 次；请确保只动向导要求的那一个摇杆/开关。
@@ -948,7 +948,7 @@ A：`keyboard.source`：`auto` 有手柄用手柄，否则键盘；`hid` 强制�
 
 **Q：启动 bridge 提示 `no HID mapping configured` / `keyboard is not configured`？**
 
-A：还没有生成本机配置。先跑 `.\hidctl.cmd setup`（手柄）或
+A：还没有生成本机配置。先跑 `.\hidctl.cmd setup joystick`（手柄）或
 `.\hidctl.cmd setup keyboard`（键盘），会写出 `config\hid2msp_inav.json`。
 
 **Q：Configurator 连不上 5760？**

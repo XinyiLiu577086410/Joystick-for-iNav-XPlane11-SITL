@@ -685,7 +685,7 @@ def start_bridge(wait: bool = True) -> int:
 
     if not HID_CONFIG.is_file():
         err(f"HID config not found: {HID_CONFIG}")
-        err("run: .\\hidctl.cmd setup          (gamepad)")
+        err("run: .\\hidctl.cmd setup joystick   (gamepad)")
         err("or:  .\\hidctl.cmd setup keyboard (keyboard only)")
         return 1
     if not BRIDGE.is_file():
@@ -1463,7 +1463,7 @@ def validate_config(path: Path) -> list[str]:
                 has_mapping = has_mapping or bool(keys)
 
     if not has_mapping:
-        errors.append("no mappings configured; run: .\\hidctl.cmd setup (or setup keyboard)")
+        errors.append("no mappings configured; run: .\\hidctl.cmd setup joystick (or setup keyboard)")
 
     return errors
 
@@ -1909,7 +1909,7 @@ def cmd_setup(no_write: bool = False, restart: bool = False) -> int:
     data["axes"] = axes
     data["buttons"] = buttons
     data["constants"] = {"9": 2000}
-    data["notes"] = f"Calibrated with hidctl setup on Windows: {pad.name}."
+    data["notes"] = f"Calibrated with hidctl setup joystick on Windows: {pad.name}."
     data["channel_map"] = {
         "1": f"Roll (axis{detected[0][0]})",
         "2": f"Pitch (axis{detected[1][0]})",
@@ -2298,7 +2298,7 @@ def cmd_doctor() -> int:
         )
 
     if not HID_CONFIG.is_file():
-        checks.append(("HID config", False, "missing; run setup"))
+        checks.append(("HID config", False, "missing; run setup joystick / keyboard"))
     else:
         errors = validate_config(HID_CONFIG)
         checks.append(("HID config", not errors, f"{len(errors)} error(s)" if errors else "ok"))
@@ -2492,13 +2492,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("doctor")
 
-    setup = sub.add_parser("setup", help="guided setup: HID channels or keyboard bindings")
+    setup = sub.add_parser("setup", help="guided setup: joystick channels or keyboard bindings")
     setup.add_argument(
         "target",
         nargs="?",
-        choices=("hid", "keyboard"),
-        default="hid",
-        help="what to configure (default: hid)",
+        choices=("joystick", "hid", "keyboard"),
+        default="joystick",
+        help="joystick/hid or keyboard (default: joystick)",
     )
     setup.add_argument("--no-write", action="store_true", help="show the result without writing the config")
     setup.add_argument("--restart", action="store_true", help="restart the bridge after writing")
@@ -2568,7 +2568,7 @@ def main(argv: list[str] | None = None) -> int:
         if command == "doctor":
             return cmd_doctor()
         if command == "setup":
-            if getattr(args, "target", "hid") == "keyboard":
+            if getattr(args, "target", "joystick") == "keyboard":
                 return cmd_setup_keyboard(args.no_write, args.restart)
             return cmd_setup(args.no_write, args.restart)
         if command == "invert":
