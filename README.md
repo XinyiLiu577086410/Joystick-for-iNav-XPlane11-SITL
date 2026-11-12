@@ -191,7 +191,7 @@ platform/    Windows / macOS / Linux 适配器
 
 ## 10. 当前限制
 
-- macOS 前台窗口门禁暂未实现（`foreground_gate=False`）。
+- macOS 前台门禁依赖 `osascript` / System Events 权限；未在真实 macOS 验证。
 - Linux Wayland 不提供全局键盘；请使用 X11。
 - macOS/Linux 适配器尚未在真实机器上完整冒烟。
 - 手柄模式档位目前要求一个 6 档旋钮轴，不支持多个按钮生成 CH8。

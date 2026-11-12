@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import ctypes
+import shutil
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -229,13 +231,29 @@ class MacOSKeyboard:
     def capabilities(self) -> KeyboardCapabilities:
         return KeyboardCapabilities(
             global_keyboard=True,
-            foreground_gate=False,
+            foreground_gate=shutil.which("osascript") is not None,
             combos=True,
-            reason="foreground gating is disabled on macOS (no AppKit dependency)",
+            reason="" if shutil.which("osascript") else "osascript unavailable; foreground gating disabled",
         )
 
     def foreground_matches(self, target: str) -> bool:
-        return True
+        if shutil.which("osascript") is None:
+            return True
+        try:
+            output = subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    'tell application "System Events" to get name of first application process whose frontmost is true',
+                ],
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=2.0,
+            ).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            return True
+        return target.casefold() in output.casefold()
 
     def validate(self, binding: str) -> None:
         resolve_combo(binding)

@@ -71,6 +71,9 @@ def main(argv: Optional[list] = None) -> int:
         return runner.run()
     except KeyboardInterrupt:
         return 0
+    except Exception as exc:
+        print(f"bridge error: {exc}", file=sys.stderr)
+        return 2
     finally:
         runner.close()
 
