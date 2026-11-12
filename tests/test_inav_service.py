@@ -72,6 +72,11 @@ class InavServiceTests(unittest.TestCase):
             self.service.ensure_eeprom(selection)
         selection.eeprom.parent.mkdir(parents=True)
         selection.eeprom.write_bytes(b"eeprom")
+        cli = self.root / "config" / "inav" / "10.0.0" / "minimal.txt"
+        cli.parent.mkdir(parents=True)
+        cli.write_text("set foo = 1\n", encoding="utf-8")
+        selection = self.service.resolve()
+        self.assertEqual(selection.cli_config, cli)
         self.service.ensure_eeprom(selection)
         self.service.write_meta(selection)
         self.assertEqual(self.service.read_meta("10.0.0").version, "10.0.0")

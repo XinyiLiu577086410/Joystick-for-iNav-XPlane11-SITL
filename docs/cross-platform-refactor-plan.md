@@ -921,6 +921,7 @@ Linux 需要 `xvfb-run` 才能测 X11 键盘/前台窗口；Wayland 只测降级
 - **Status：完成（代码）** — `services/status.py` 汇总组件/INAV/config/端口/X-Plane；CLI `status` 已改用该服务。
 - **Doctor：完成（代码）** — `services/doctor.py` 检查平台、键盘能力、X-Plane、HITL 插件、INAV 安装/选择/eeprom、配置与启动门禁；CLI `doctor` 用 OK/WARN/FAIL 输出并在失败时返回 1。
 - **Eeprom：完成（代码）** — `services/eeprom.py` 按版本备份/列表/恢复/重置；CLI `backup eeprom`、`backups`、`restore eeprom`、`reset --yes`。
+- **配置源迁移：完成** — 旧 `config/INAV_SITL_MINIMAL_NODEFAULTS.txt` 已迁移到 `config/inav/10.0.0/minimal.txt`；`config/README.md` 和空模板已更新为按版本/无默认映射。
 - **CLI 配置加载：完成（代码）** — `services/cli.py` 通过 5760 进入 CLI、逐条发送、可选 `save`；CLI `config load` 支持 `--file/--port/--no-save/--inav-version/--inav-path`。
 - **Phase 6：部分完成** — `services/inav.py` 支持 `--inav-path` / `--inav-version` / 环境变量 / active / 自动最高版本，按版本隔离 eeprom/meta/CLI 配置，版本不匹配拒绝。
 - **Phase 7：部分完成** — `apps/cli.py` 已提供 `inav list/use/check`、`config check/load`、`setup keyboard/joystick`、`start/stop/restart/logs/status/doctor`、`backup/backups/restore/reset`、`--input` 与版本参数。
