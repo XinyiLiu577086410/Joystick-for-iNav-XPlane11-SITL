@@ -48,6 +48,7 @@ def main(argv: Optional[list] = None) -> int:
             platform_id=platform.id,
             backend_id=platform.keyboard.backend,
             input_source=args.input,
+            keyboard=platform.keyboard,
         )
     except StartupError as exc:
         print(f"startup error: {exc}", file=sys.stderr)

@@ -109,6 +109,7 @@ class Context:
             self.paths.config_dir / "hid2msp_inav.json",
             platform_id=self.platform.id,
             keyboard_backend=self.platform.keyboard.backend,
+            keyboard=self.platform.keyboard,
         )
         self.sitl = SitlService(self.platform.process, self.paths, self.inav)
         self.bridge = BridgeService(

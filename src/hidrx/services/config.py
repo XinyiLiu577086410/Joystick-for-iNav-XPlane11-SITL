@@ -8,6 +8,7 @@ from typing import Optional
 
 from ..core.config import BridgeConfig, load_config
 from ..core.startup import StartupPlan, require_ready
+from ..platform.base import KeyboardBackend
 
 
 @dataclass
@@ -15,6 +16,7 @@ class ConfigService:
     config_path: Path
     platform_id: str
     keyboard_backend: str
+    keyboard: Optional[KeyboardBackend] = None
 
     def load(self) -> BridgeConfig:
         return load_config(self.config_path)
@@ -25,4 +27,5 @@ class ConfigService:
             platform_id=self.platform_id,
             backend_id=self.keyboard_backend,
             input_source=input_source,
+            keyboard=self.keyboard,
         )

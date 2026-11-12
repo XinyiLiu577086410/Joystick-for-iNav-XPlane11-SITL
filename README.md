@@ -1,5 +1,7 @@
 # Joystick for INAV SITL + X-Plane
 
+![cross-platform](https://github.com/XinyiLiu577086410/Joystick-for-iNav-XPlane11-SITL/actions/workflows/cross-platform.yml/badge.svg?branch=cross-platform)
+
 **当前分支：`cross-platform`**  
 目标是用一套核心代码支持 Windows、macOS、Linux；平台的系统调用分别放在适配器中。
 

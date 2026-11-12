@@ -12,6 +12,7 @@ from .config import (
     validate_config,
 )
 from ..constants import INPUT_AUTO, INPUT_KEYBOARD
+from ..platform.base import KeyboardBackend
 
 
 class StartupError(RuntimeError):
@@ -29,6 +30,7 @@ def require_ready(
     platform_id: str,
     backend_id: str,
     input_source: Optional[str] = None,
+    keyboard: Optional[KeyboardBackend] = None,
 ) -> StartupPlan:
     errors = validate_config(config, input_source)
     if config.platform and config.platform != platform_id:
@@ -41,6 +43,12 @@ def require_ready(
             f"keyboard.backend was created for {config.keyboard.backend!r}; "
             f"current backend is {backend_id!r}"
         )
+    if keyboard is not None:
+        for action, binding in config.keyboard.keys.items():
+            try:
+                keyboard.validate(binding)
+            except ValueError as exc:
+                errors.append(f"keyboard.{action}: {exc}")
     if errors:
         raise StartupError("; ".join(errors))
 

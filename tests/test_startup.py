@@ -10,6 +10,12 @@ from pathlib import Path
 from hidrx.actions import KEYBOARD_ACTIONS
 from hidrx.core.config import BridgeConfig, ConfigError, config_from_dict, load_config, validate_config
 from hidrx.core.startup import StartupError, require_ready
+from hidrx.platform.fake import FakeKeyboard
+
+
+class RejectingKeyboard(FakeKeyboard):
+    def validate(self, binding: str) -> None:
+        raise ValueError("unknown key")
 
 
 def complete_keyboard() -> dict:
@@ -74,6 +80,13 @@ class StartupTests(unittest.TestCase):
         config = config_from_dict({"platform": "fake", "keyboard": {"keys": {}}})
         with self.assertRaises(StartupError):
             require_ready(config, "fake", "fake", "auto")
+
+    def test_invalid_binding_rejected_by_backend(self) -> None:
+        config = config_from_dict(
+            {"platform": "fake", "keyboard": {"backend": "fake", "keys": complete_keyboard()}}
+        )
+        with self.assertRaises(StartupError):
+            require_ready(config, "fake", "fake", "auto", keyboard=RejectingKeyboard())
 
 
 if __name__ == "__main__":
