@@ -911,14 +911,14 @@ Linux 需要 `xvfb-run` 才能测 X11 键盘/前台窗口；Wayland 只测降级
 ## 16. 实施进度
 
 - **Phase 0：完成** — `cross-platform` 分支已创建。
-- **Phase 1：完成** — `src/hidrx/core/` 已抽出 MSP、通道映射、配置、启动门禁；当前 83 个 unittest（Windows 本地 4 个 POSIX 用例跳过）。
+- **Phase 1：完成** — `src/hidrx/core/` 已抽出 MSP、通道映射、配置、启动门禁；当前 84 个 unittest（Windows 本地 4 个 POSIX 用例跳过）。
 - **Phase 2：完成（骨架）** — `platform/base.py` 接口、`platform/fake.py` 内存实现、`tests/test_fake_platform.py` 已就位。
 - **Phase 3：完成** — Windows `paths.py`、`processes.py`、`keyboard.py`、`xplane.py`、`inav_locator.py`、`platform.py` 与 `platform/factory.py` 已完成；键盘、X-Plane、INAV 定位均已接入。
 - **Phase 4：完成（代码）** — macOS `paths.py`、`keyboard.py`（osascript 前台门禁）、`xplane.py`、`inav_locator.py`、`platform.py` 与共享 `posix/processes.py` 已完成；未在真实 macOS 冒烟。
 - **Phase 5：完成（代码）** — Linux `paths.py`、`keyboard.py`（X11 + Wayland 降级）、`xplane.py`、`inav_locator.py`、`platform.py` 已完成；未在真实 X11 桌面冒烟。
 - **Bridge 运行时：完成（代码）** — `core/keyboard.py`、`core/bridge.py`、`apps/bridge.py` 已实现手柄/键盘回退、掉线暂停发帧不退出、重连收回；`BridgeService` 改为启动 `python -m hidrx.apps.bridge`。
 - **MSP 网络冒烟：完成** — `tests/test_bridge_network.py` 用真实 TCP socket 验证 `SET_RAW_RC` 帧（命令 200、16 通道、CH1=2000）。
-- **重复启动保护：完成（代码）** — CLI 启动前检查 SITL/bridge 已运行；`SitlService` 发现 5760–5763 任一端口已占用时拒绝再启动。
+- **重复启动保护：完成（代码）** — CLI 启动前检查 SITL/bridge 已运行；`SitlService` 发现 5760–5763 任一端口已占用时拒绝再启动；端口等待失败时自动停掉刚启动的子进程。
 - **启动门禁：完成（代码）** — `require_ready` 现在还会用平台 `KeyboardBackend.validate()` 校验每个绑定的键名，非法键在启动前失败。
 - **Status：完成（代码）** — `services/status.py` 汇总组件/INAV/config/端口/X-Plane；CLI `status` 已改用该服务。
 - **Doctor：完成（代码）** — `services/doctor.py` 检查平台、键盘能力、X-Plane、HITL 插件、INAV 安装/选择/eeprom、配置与启动门禁；CLI `doctor` 用 OK/WARN/FAIL 输出并在失败时返回 1。

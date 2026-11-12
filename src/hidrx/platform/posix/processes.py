@@ -97,7 +97,7 @@ class PosixProcessManager:
 
     def stop(self, handle: ProcessHandle) -> None:
         proc = self._procs.pop(handle.pid, None)
-        if not process_exists(handle.pid):
+        if not self.is_alive(handle):
             if proc is not None:
                 proc.wait()
             return

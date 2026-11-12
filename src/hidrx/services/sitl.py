@@ -47,7 +47,11 @@ class SitlService:
                 log_path=self.paths.logs_dir / "sitl.log",
             )
         )
-        self.wait_ready(handle, timeout)
+        try:
+            self.wait_ready(handle, timeout)
+        except SitlError:
+            self.process.stop(handle)
+            raise
         return handle
 
     def wait_ready(self, handle: ProcessHandle, timeout: float = 10.0) -> None:

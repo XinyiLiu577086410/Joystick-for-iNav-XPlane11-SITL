@@ -59,6 +59,13 @@ class ServiceTests(unittest.TestCase):
         with self.assertRaises(SitlError):
             service.start(self.selection)
 
+    def test_sitl_stops_child_when_ports_never_open(self) -> None:
+        process = FakeProcessManager()
+        service = SitlService(process=process, paths=self.paths, inav=self.inav)
+        with self.assertRaises(SitlError):
+            service.start(self.selection, timeout=0.05)
+        self.assertEqual(process.alive, {})
+
     def test_bridge_command_and_start(self) -> None:
         process = FakeProcessManager()
         service = BridgeService(
