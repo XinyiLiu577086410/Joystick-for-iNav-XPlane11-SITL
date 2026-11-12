@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -15,6 +16,7 @@ from ..platform.factory import create_platform
 from ..services.bridge import BridgeService
 from ..services.config import ConfigService
 from ..services.doctor import DoctorService
+from ..services.eeprom import EepromError, EepromService
 from ..services.inav import InavError, InavService
 from ..services.runtime import RuntimeStore
 from ..services.setup import KeyboardSetupService, SetupError
@@ -43,13 +45,40 @@ def build_parser() -> argparse.ArgumentParser:
     setup_sub.add_parser("keyboard", help="capture every keyboard action")
     setup_sub.add_parser("joystick", help="detect sticks, mode knob and arm button")
 
-    for name in ("start", "stop"):
+    for name in ("start", "stop", "restart"):
         command = sub.add_parser(name)
         command.add_argument("component", nargs="?", default="all", choices=("all", "sitl", "bridge"))
-        if name == "start":
+        if name in ("start", "restart"):
             command.add_argument("--input", choices=("auto", "joystick", "keyboard"), default=None)
             command.add_argument("--inav-version", default=None)
             command.add_argument("--inav-path", type=Path, default=None)
+
+    logs = sub.add_parser("logs")
+    logs.add_argument("component", nargs="?", default="all", choices=("all", "sitl", "bridge"))
+    logs.add_argument("-n", "--lines", type=int, default=50)
+    logs.add_argument("-f", "--follow", action="store_true")
+
+    backup = sub.add_parser("backup")
+    backup_sub = backup.add_subparsers(dest="backup_command", required=True)
+    backup_eeprom = backup_sub.add_parser("eeprom")
+    backup_eeprom.add_argument("--name", default=None)
+    backup_eeprom.add_argument("--inav-version", default=None)
+    backup_eeprom.add_argument("--inav-path", type=Path, default=None)
+
+    backups = sub.add_parser("backups")
+    backups.add_argument("--version", default=None)
+
+    restore = sub.add_parser("restore")
+    restore_sub = restore.add_subparsers(dest="restore_command", required=True)
+    restore_eeprom = restore_sub.add_parser("eeprom")
+    restore_eeprom.add_argument("name")
+    restore_eeprom.add_argument("--inav-version", default=None)
+    restore_eeprom.add_argument("--inav-path", type=Path, default=None)
+
+    reset = sub.add_parser("reset")
+    reset.add_argument("--yes", action="store_true")
+    reset.add_argument("--inav-version", default=None)
+    reset.add_argument("--inav-path", type=Path, default=None)
 
     status = sub.add_parser("status")
     status.add_argument("--json", action="store_true")
@@ -79,6 +108,7 @@ class Context:
             self.platform.process,
             self.paths,
         )
+        self.eeprom = EepromService(self.paths.runtime_dir)
 
 
 def _alive(context: Context, component: str) -> Optional[ProcessHandle]:
@@ -179,6 +209,95 @@ def cmd_setup(context: Context, args: argparse.Namespace) -> int:
 
     print(f"unsupported setup: {args.setup_command}", file=sys.stderr)
     return 1
+
+
+def _selection(context: Context, args: argparse.Namespace):
+    return context.inav.resolve(
+        getattr(args, "inav_version", None),
+        getattr(args, "inav_path", None),
+    )
+
+
+def cmd_backup(context: Context, args: argparse.Namespace) -> int:
+    selection = _selection(context, args)
+    path = context.eeprom.backup(selection, args.name)
+    print(f"backup: {path}")
+    return 0
+
+
+def cmd_backups(context: Context, args: argparse.Namespace) -> int:
+    version = args.version or context.inav.resolve().install.version
+    paths = context.eeprom.list(version)
+    if not paths:
+        print(f"no backups for INAV {version}")
+        return 0
+    for path in paths:
+        print(path)
+    return 0
+
+
+def cmd_restore(context: Context, args: argparse.Namespace) -> int:
+    selection = _selection(context, args)
+    source = context.eeprom.restore(selection, args.name)
+    print(f"restored: {source} -> {selection.eeprom}")
+    return 0
+
+
+def cmd_reset(context: Context, args: argparse.Namespace) -> int:
+    if not args.yes:
+        print("refusing to reset without --yes", file=sys.stderr)
+        return 1
+    selection = _selection(context, args)
+    context.eeprom.reset(selection)
+    print(f"reset: {selection.eeprom}")
+    return 0
+
+
+def _read_tail(path: Path, lines: int) -> str:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return f"{path}: {exc}"
+    return "\n".join(text.splitlines()[-max(1, lines):])
+
+
+def cmd_logs(context: Context, args: argparse.Namespace) -> int:
+    names = ["sitl", "bridge"] if args.component == "all" else [args.component]
+    for name in names:
+        print(f"== {name} ==")
+        print(_read_tail(context.paths.logs_dir / f"{name}.log", args.lines))
+    if not args.follow:
+        return 0
+    offsets = {}
+    for name in names:
+        path = context.paths.logs_dir / f"{name}.log"
+        try:
+            offsets[name] = path.stat().st_size
+        except OSError:
+            offsets[name] = 0
+    try:
+        while True:
+            for name in names:
+                path = context.paths.logs_dir / f"{name}.log"
+                try:
+                    with path.open("rb") as handle:
+                        handle.seek(offsets[name])
+                        chunk = handle.read().decode("utf-8", errors="replace")
+                        offsets[name] = handle.tell()
+                except OSError:
+                    continue
+                if chunk:
+                    print(chunk, end="" if chunk.endswith("\n") else "\n", flush=True)
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        return 0
+
+
+def cmd_restart(context: Context, args: argparse.Namespace) -> int:
+    code = cmd_stop(context, args)
+    if code != 0:
+        return code
+    return cmd_start(context, args)
 
 
 def cmd_start(context: Context, args: argparse.Namespace) -> int:
@@ -286,6 +405,18 @@ def main(argv=None) -> int:
             return cmd_config(context, args)
         if args.command == "setup":
             return cmd_setup(context, args)
+        if args.command == "restart":
+            return cmd_restart(context, args)
+        if args.command == "logs":
+            return cmd_logs(context, args)
+        if args.command == "backup":
+            return cmd_backup(context, args)
+        if args.command == "backups":
+            return cmd_backups(context, args)
+        if args.command == "restore":
+            return cmd_restore(context, args)
+        if args.command == "reset":
+            return cmd_reset(context, args)
         if args.command == "start":
             return cmd_start(context, args)
         if args.command == "stop":
@@ -294,7 +425,7 @@ def main(argv=None) -> int:
             return cmd_status(context, args)
         if args.command == "doctor":
             return cmd_doctor(context)
-    except (InavError, ConfigError, StartupError, OSError) as exc:
+    except (InavError, ConfigError, StartupError, EepromError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     return 1
