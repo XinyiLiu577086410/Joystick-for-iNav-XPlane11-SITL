@@ -911,12 +911,12 @@ Linux 需要 `xvfb-run` 才能测 X11 键盘/前台窗口；Wayland 只测降级
 ## 16. 实施进度
 
 - **Phase 0：完成** — `cross-platform` 分支已创建。
-- **Phase 1：完成** — `src/hidrx/core/` 已抽出 MSP、通道映射、配置、启动门禁；当前 55 个 unittest 通过。
+- **Phase 1：完成** — `src/hidrx/core/` 已抽出 MSP、通道映射、配置、启动门禁；当前 60 个 unittest 通过。
 - **Phase 2：完成（骨架）** — `platform/base.py` 接口、`platform/fake.py` 内存实现、`tests/test_fake_platform.py` 已就位。
 - **Phase 3：完成** — Windows `paths.py`、`processes.py`、`keyboard.py`、`xplane.py`、`inav_locator.py`、`platform.py` 与 `platform/factory.py` 已完成；键盘、X-Plane、INAV 定位均已接入。
 - **Phase 4：完成（代码）** — macOS `paths.py`、`keyboard.py`、`xplane.py`、`inav_locator.py`、`platform.py` 与共享 `posix/processes.py` 已完成；macOS 暂无前台窗口门禁（`foreground_gate=False`），未在真实 macOS 冒烟。
 - **Phase 5：完成（代码）** — Linux `paths.py`、`keyboard.py`（X11 + Wayland 降级）、`xplane.py`、`inav_locator.py`、`platform.py` 已完成；未在真实 X11 桌面冒烟。
 - **Phase 6：部分完成** — `services/inav.py` 支持 `--inav-path` / `--inav-version` / 环境变量 / active / 自动最高版本，按版本隔离 eeprom/meta/CLI 配置，版本不匹配拒绝。
-- **Phase 7：部分完成** — `apps/cli.py` + `hidrx` entry point 已提供 `inav list/use/check`、`config check`、`start/stop/status/doctor`、`--input` 与版本参数。
-- **Phase 4+：进行中** — `services/sitl.py`、`services/bridge.py`、`services/config.py`、`services/runtime.py` 已完成；setup 向导、完整 CLI 兼容、CI 待做。
+- **Phase 7：部分完成** — `apps/cli.py` + `hidrx` entry point 已提供 `inav list/use/check`、`config check`、`setup keyboard`、`start/stop/status/doctor`、`--input` 与版本参数；`setup keyboard` 强制逐项捕获、无默认键位、重复绑定拒绝。
+- **Phase 4+：进行中** — `services/sitl.py`、`services/bridge.py`、`services/config.py`、`services/runtime.py`、`services/setup.py` 已完成；`setup joystick`、完整 CLI 兼容、CI 待做。
 
