@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 import unittest
 from typing import List
 
@@ -109,7 +108,7 @@ class BridgeRunnerTests(unittest.TestCase):
         self.assertEqual(len(link.sent), 1)
         runner.close()
 
-    def test_joystick_loss_waits_without_sending(self) -> None:
+    def test_gamepad_loss_waits_without_sending(self) -> None:
         link = FakeLink()
 
         def factory():
@@ -118,7 +117,7 @@ class BridgeRunnerTests(unittest.TestCase):
         runner = BridgeRunner(
             link=link,
             config=self.config,
-            input_source="joystick",
+            input_source="gamepad",
             keyboard_backend=self.keyboard,
             gamepad_factory=factory,
             keyboard_factory=lambda: KeyboardMapper(self.config.keyboard, self.keyboard),
@@ -165,11 +164,11 @@ class KeyboardMapperTests(unittest.TestCase):
         config.keyboard.axis_rate = 1e9
         keyboard = FakeKeyboard(backend="fake", bindings={"pitch_up": True})
         mapper = KeyboardMapper(config.keyboard, keyboard)
-        time.sleep(0.01)
+        mapper.last -= 1.0
         self.assertEqual(mapper.poll()[1], 1000)
         keyboard.bindings["pitch_up"] = False
         keyboard.bindings["pitch_down"] = True
-        time.sleep(0.01)
+        mapper.last -= 1.0
         self.assertEqual(mapper.poll()[1], 2000)
 
     def test_restore_preserves_arm_mode_and_wp(self) -> None:

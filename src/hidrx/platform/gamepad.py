@@ -1,4 +1,4 @@
-"""Cross-platform pygame gamepad backend used by the joystick setup wizard."""
+"""Cross-platform pygame gamepad backend used by the gamepad setup wizard."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ class PygameGamepad:
                 break
             pygame.joystick.quit()
         if not found:
-            raise GamepadError("no joystick/gamepad detected by SDL2")
+            raise GamepadError("no gamepad detected by SDL2")
         self._joy = pygame.joystick.Joystick(0)
         self._joy.init()
         self.name = self._joy.get_name()
@@ -50,7 +50,7 @@ class PygameGamepad:
         try:
             self._pygame.event.pump()
             if self._pygame.joystick.get_count() == 0 or not self._joy.get_init():
-                raise GamepadError("joystick removed")
+                raise GamepadError("gamepad removed")
             removed_event = getattr(self._pygame, "JOYDEVICEREMOVED", None)
             if removed_event is not None:
                 for event in self._pygame.event.get():
@@ -58,7 +58,7 @@ class PygameGamepad:
                         event.type == removed_event
                         and getattr(event, "instance_id", None) == self._joy.get_instance_id()
                     ):
-                        raise GamepadError("joystick removed")
+                        raise GamepadError("gamepad removed")
             axes = [self._joy.get_axis(i) for i in range(self.num_axes)]
             buttons = [self._joy.get_button(i) for i in range(self.num_buttons)]
             return axes, buttons

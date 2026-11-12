@@ -64,7 +64,7 @@ class BridgeNetworkTests(unittest.TestCase):
         runner = BridgeRunner(
             link=link,
             config=config,
-            input_source="joystick",
+            input_source="gamepad",
             keyboard_backend=keyboard,
             gamepad_factory=FakeGamepad,
             keyboard_factory=lambda: None,  # type: ignore[arg-type]

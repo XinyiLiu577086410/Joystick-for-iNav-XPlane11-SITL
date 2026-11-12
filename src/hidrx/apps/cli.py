@@ -51,13 +51,13 @@ def build_parser() -> argparse.ArgumentParser:
     setup = sub.add_parser("setup", help="interactive setup (no defaults)")
     setup_sub = setup.add_subparsers(dest="setup_command", required=True)
     setup_sub.add_parser("keyboard", help="capture every keyboard action")
-    setup_sub.add_parser("joystick", help="detect sticks, mode knob and arm button")
+    setup_sub.add_parser("gamepad", help="detect sticks, mode knob and switches")
 
     for name in ("start", "stop", "restart"):
         command = sub.add_parser(name)
         command.add_argument("component", nargs="?", default="all", choices=("all", "sitl", "bridge"))
         if name in ("start", "restart"):
-            command.add_argument("--input", choices=("auto", "joystick", "keyboard"), default=None)
+            command.add_argument("--input", choices=("auto", "gamepad", "keyboard"), default=None)
             command.add_argument("--inav-version", default=None)
             command.add_argument("--inav-path", type=Path, default=None)
 
@@ -228,11 +228,11 @@ def cmd_setup(context: Context, args: argparse.Namespace) -> int:
         print(f"keyboard: saved {len(keys)} bindings to {context.config.config_path}")
         return 0
 
-    if args.setup_command == "joystick":
+    if args.setup_command == "gamepad":
         from ..platform.gamepad import GamepadError, PygameGamepad
-        from ..services.joystick_setup import JoystickSetupService
+        from ..services.gamepad_setup import GamepadSetupService
 
-        service = JoystickSetupService(
+        service = GamepadSetupService(
             config_path=context.config.config_path,
             platform_id=context.platform.id,
             keyboard_backend=context.platform.keyboard.backend,
@@ -258,7 +258,7 @@ def cmd_setup(context: Context, args: argparse.Namespace) -> int:
         finally:
             if device is not None:
                 device.close()
-        print(f"joystick: saved {len(config.axes)} axes/{len(config.buttons)} buttons")
+        print(f"gamepad: saved {len(config.axes)} axes/{len(config.buttons)} buttons")
         return 0
 
     print(f"unsupported setup: {args.setup_command}", file=sys.stderr)

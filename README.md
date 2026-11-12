@@ -1,4 +1,4 @@
-# Joystick for INAV SITL + X-Plane
+# Gamepad for INAV SITL + X-Plane
 
 ![cross-platform](https://github.com/XinyiLiu577086410/Joystick-for-iNav-XPlane11-SITL/actions/workflows/cross-platform.yml/badge.svg?branch=cross-platform)
 
@@ -47,7 +47,7 @@ python -m hidrx.apps.cli ...
 **没有默认手柄映射，也没有默认键位。** 必须手动跑一次：
 
 ```bash
-hidrx setup joystick
+hidrx setup gamepad
 hidrx setup keyboard
 ```
 
@@ -110,7 +110,7 @@ hidrx start                 # SITL + bridge
 hidrx start sitl
 hidrx start bridge
 hidrx start --input auto
-hidrx start --input joystick
+hidrx start --input gamepad
 hidrx start --input keyboard
 
 hidrx stop
@@ -126,7 +126,7 @@ hidrx logs -f
 | 模式 | 手柄掉线 | 手柄重连 |
 |---|---|---|
 | `auto` | 键盘已配置 → 回退键盘；否则暂停发 RC | 自动收回手柄 |
-| `joystick` | **暂停发 RC，bridge 不退出**，SITL failsafe | 立即恢复发 RC |
+| `gamepad` | **暂停发 RC，bridge 不退出**，SITL failsafe | 立即恢复发 RC |
 | `keyboard` | 不受影响 | 忽略手柄 |
 
 所有模式都不会因为手柄拔掉而退出 bridge。
@@ -164,7 +164,7 @@ hidrx doctor
 | `hidctl start` | `hidrx start` |
 | `hidctl stop` / `restart` | `hidrx stop` / `restart` |
 | `hidctl status` | `hidrx status` |
-| `hidctl setup joystick` | `hidrx setup joystick` |
+| `hidctl setup joystick` | `hidrx setup gamepad` |
 | `hidctl setup keyboard` | `hidrx setup keyboard` |
 | `hidctl backup eeprom` | `hidrx backup eeprom` |
 | `hidctl restore eeprom NAME` | `hidrx restore eeprom NAME` |
@@ -175,7 +175,7 @@ hidrx doctor
 - `HIDCTL_SITL` **不再读取**；用 `--inav-path` 或 `HIDRX_INAV_PATH`。
 - 旧 `hid2msp_inav.json` 没有 `platform` 字段，会被视为未配置；重新跑：
   ```bash
-  hidrx setup joystick
+  hidrx setup gamepad
   hidrx setup keyboard
   ```
 - 旧 `config/runtime/plane.bin` 不会自动迁移；按版本放到：

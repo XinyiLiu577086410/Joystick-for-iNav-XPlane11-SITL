@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from ..actions import KEYBOARD_ACTIONS
 from .channels import AxisMap, Button3Map, ButtonMap, CombineMap
-from ..constants import INPUT_AUTO, INPUT_JOYSTICK, INPUT_KEYBOARD, INPUT_MODES
+from ..constants import INPUT_AUTO, INPUT_GAMEPAD, INPUT_KEYBOARD, INPUT_MODES
 
 
 class ConfigError(ValueError):
@@ -44,8 +44,8 @@ class BridgeConfig:
 
 def normalize_input_source(value: str) -> str:
     source = str(value).strip().lower()
-    if source == "hid":
-        return INPUT_JOYSTICK
+    if source in ("hid", "joystick"):
+        return INPUT_GAMEPAD
     if source not in INPUT_MODES:
         raise ConfigError(f"input source must be one of {INPUT_MODES}")
     return source
@@ -142,8 +142,8 @@ def validate_config(config: BridgeConfig, input_source: Optional[str] = None) ->
         errors.append(str(exc))
         source = INPUT_AUTO
 
-    if source == INPUT_JOYSTICK and not has_hid_mapping(config):
-        errors.append("input joystick: no axes/buttons configured; run setup joystick")
+    if source == INPUT_GAMEPAD and not has_hid_mapping(config):
+        errors.append("input gamepad: no axes/buttons configured; run setup gamepad")
     elif source == INPUT_KEYBOARD and not keyboard_complete(config.keyboard):
         errors.append("input keyboard: key bindings incomplete; run setup keyboard")
     elif source == INPUT_AUTO and not has_hid_mapping(config) and not keyboard_complete(config.keyboard):

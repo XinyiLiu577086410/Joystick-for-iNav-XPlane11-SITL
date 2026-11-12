@@ -20,7 +20,7 @@ from ..platform.gamepad import PygameGamepad
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="hidrx.bridge")
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--input", choices=("auto", "joystick", "keyboard"), default=None)
+    parser.add_argument("--input", choices=("auto", "gamepad", "keyboard"), default=None)
     parser.add_argument("--host", default=None)
     parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--rate", type=float, default=None)

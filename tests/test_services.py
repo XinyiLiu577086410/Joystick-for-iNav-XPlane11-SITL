@@ -72,11 +72,11 @@ class ServiceTests(unittest.TestCase):
             process=process,
             paths=self.paths,
         )
-        handle = service.start(self.root / "config" / "hid2msp_inav.json", "joystick")
+        handle = service.start(self.root / "config" / "hid2msp_inav.json", "gamepad")
         self.assertTrue(process.is_alive(handle))
         argv = process.spawned[-1].argv
         self.assertIn("--input", argv)
-        self.assertEqual(argv[argv.index("--input") + 1], "joystick")
+        self.assertEqual(argv[argv.index("--input") + 1], "gamepad")
 
     def test_bridge_rejects_unknown_input(self) -> None:
         service = BridgeService(

@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
-from ..constants import INPUT_AUTO, INPUT_KEYBOARD
+from ..constants import INPUT_AUTO, INPUT_GAMEPAD, INPUT_KEYBOARD
 from ..models import GamepadDevice
 from ..platform.base import KeyboardBackend
 from .channels import build_channels

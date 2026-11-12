@@ -30,11 +30,11 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("platform: missing", validate_config(BridgeConfig()))
         self.assertTrue(any("no HID mapping" in item for item in validate_config(config)))
 
-    def test_old_source_hid_maps_to_joystick(self) -> None:
+    def test_old_source_hid_maps_to_gamepad(self) -> None:
         config = config_from_dict(
             {"platform": "fake", "keyboard": {"source": "hid", "keys": complete_keyboard()}}
         )
-        self.assertEqual(config.keyboard.source, "joystick")
+        self.assertEqual(config.keyboard.source, "gamepad")
 
     def test_load_from_file(self) -> None:
         data = {"platform": "fake", "port": 6000, "keyboard": {"keys": complete_keyboard()}}
@@ -69,12 +69,12 @@ class StartupTests(unittest.TestCase):
         self.assertEqual(plan.input_source, "auto")
         self.assertTrue(plan.keyboard_fallback)
 
-    def test_joystick_mode_requires_mapping(self) -> None:
+    def test_gamepad_mode_requires_mapping(self) -> None:
         config = config_from_dict(
             {"platform": "fake", "keyboard": {"backend": "fake", "keys": complete_keyboard()}}
         )
         with self.assertRaises(StartupError):
-            require_ready(config, "fake", "fake", "joystick")
+            require_ready(config, "fake", "fake", "gamepad")
 
     def test_auto_without_mapping_rejected(self) -> None:
         config = config_from_dict({"platform": "fake", "keyboard": {"keys": {}}})

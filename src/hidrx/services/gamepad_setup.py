@@ -1,4 +1,4 @@
-"""Guided joystick setup: detect axes/buttons, never invent defaults."""
+"""Guided gamepad setup: detect axes/buttons, never invent defaults."""
 
 from __future__ import annotations
 
@@ -120,7 +120,7 @@ def detect_switch(
 
 
 @dataclass
-class JoystickSetupService:
+class GamepadSetupService:
     config_path: Path
     platform_id: str
     keyboard_backend: str

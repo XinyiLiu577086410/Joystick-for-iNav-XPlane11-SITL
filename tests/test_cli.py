@@ -20,10 +20,10 @@ from hidrx.services.runtime import RuntimeStore
 class ParserTests(unittest.TestCase):
     def test_start_flags(self) -> None:
         args = build_parser().parse_args(
-            ["start", "bridge", "--input", "joystick", "--inav-version", "10.0.0"]
+            ["start", "bridge", "--input", "gamepad", "--inav-version", "10.0.0"]
         )
         self.assertEqual(args.component, "bridge")
-        self.assertEqual(args.input, "joystick")
+        self.assertEqual(args.input, "gamepad")
         self.assertEqual(args.inav_version, "10.0.0")
 
     def test_defaults(self) -> None:

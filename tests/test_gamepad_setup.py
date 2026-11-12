@@ -1,4 +1,4 @@
-"""Joystick setup detection and save tests."""
+"""Gamepad setup detection and save tests."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import List, Sequence, Tuple
 
 from hidrx.core.config import load_config
-from hidrx.services.joystick_setup import (
-    JoystickSetupService,
+from hidrx.services.gamepad_setup import (
+    GamepadSetupService,
     detect_axis,
     detect_button,
 )
@@ -128,7 +128,7 @@ class SetupSaveTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            service = JoystickSetupService(
+            service = GamepadSetupService(
                 path,
                 "fake",
                 "fake",
