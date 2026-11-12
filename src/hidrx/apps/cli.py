@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from ..actions import KEYBOARD_ACTION_LABELS
 from ..core.config import ConfigError
 from ..core.startup import StartupError
 from ..models import ProcessHandle
@@ -204,7 +205,8 @@ def cmd_setup(context: Context, args: argparse.Namespace) -> int:
         )
 
         def prompt(action: str) -> None:
-            print(f"\n{action}: press a key or combination (30s timeout)...")
+            label = KEYBOARD_ACTION_LABELS.get(action, action)
+            print(f"\n{label}：按下按键或组合键（30 秒超时）...")
 
         try:
             keys = service.capture_all(

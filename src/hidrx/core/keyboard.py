@@ -30,6 +30,7 @@ class KeyboardMapper:
     throttle: float = PWM_MIN
     armed: bool = False
     mode: int = 0
+    wp: bool = False
     previous: Dict[str, bool] = field(default_factory=dict)
     last: float = field(default_factory=time.monotonic)
 
@@ -53,6 +54,7 @@ class KeyboardMapper:
         self.axes[3] = channels[3]
         self.throttle = float(channels[2])
         self.armed = channels[6] >= PWM_MID
+        self.wp = channels[5] >= PWM_MID
         try:
             self.mode = min(range(6), key=lambda index: abs(MODE_VALUES[index] - channels[7]))
         except (IndexError, ValueError):
@@ -81,6 +83,8 @@ class KeyboardMapper:
             name = f"mode_{index}"
             if states.get(name) and not self.previous.get(name):
                 self.mode = index - 1
+        if states.get("nav_wp") and not self.previous.get("nav_wp"):
+            self.wp = not self.wp
 
         roll = PWM_MID
         if states.get("roll_left") and not states.get("roll_right"):
@@ -116,7 +120,7 @@ class KeyboardMapper:
         for index in range(4):
             self.channels[index] = int(round(self.axes[index]))
         self.channels[4] = PWM_MID
-        self.channels[5] = PWM_MIN
+        self.channels[5] = PWM_MAX if self.wp else PWM_MIN
         self.channels[6] = PWM_MAX if self.armed else PWM_MIN
         self.channels[7] = MODE_VALUES[self.mode]
         self.channels[8] = PWM_MAX

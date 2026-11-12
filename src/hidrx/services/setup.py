@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
-from ..actions import KEYBOARD_ACTIONS
+from ..actions import KEYBOARD_ACTION_LABELS, KEYBOARD_ACTIONS
 from ..core.config import BridgeConfig, KeyboardConfig, load_config
 from ..platform.base import KeyboardBackend
 
@@ -35,13 +35,14 @@ class KeyboardSetupService:
         used: Dict[str, str] = {}
         for action in self.actions:
             prompt(action)
+            label = KEYBOARD_ACTION_LABELS.get(action, action)
             binding = capture(action)
             if not binding:
-                raise SetupError(f"no key captured for {action}")
+                raise SetupError(f"没有捕获到「{label}」的按键")
             self.keyboard.validate(binding)
             canonical = binding.strip().lower()
             if canonical in used:
-                raise SetupError(f"{binding!r} is already used by {used[canonical]}")
+                raise SetupError(f"「{label}」的按键 {binding!r} 已被其他项使用")
             used[canonical] = action
             keys[action] = binding
         return keys

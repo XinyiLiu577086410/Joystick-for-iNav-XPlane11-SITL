@@ -143,6 +143,19 @@ class KeyboardMapperTests(unittest.TestCase):
         keyboard.bindings["arm"] = True
         self.assertEqual(mapper.poll()[6], 1000)
 
+    def test_nav_wp_toggle(self) -> None:
+        config = BridgeConfig(
+            platform="fake",
+            keyboard=keyboard_config("keyboard"),
+        )
+        keyboard = FakeKeyboard(backend="fake", bindings={"nav_wp": True})
+        mapper = KeyboardMapper(config.keyboard, keyboard)
+        self.assertEqual(mapper.poll()[5], 2000)
+        keyboard.bindings["nav_wp"] = False
+        mapper.poll()
+        keyboard.bindings["nav_wp"] = True
+        self.assertEqual(mapper.poll()[5], 1000)
+
 
 if __name__ == "__main__":
     unittest.main()
