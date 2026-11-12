@@ -199,6 +199,9 @@ class JoystickSetupService:
         prompt: Callable[[str], None] = lambda text: None,
         confirm: Callable[[str], None] = lambda text: None,
     ) -> BridgeConfig:
+        prompt("开始前：把所有摇杆回中，油门拉到最低")
+        confirm("确认所有摇杆已回中、油门已最低")
+
         specs = (
             ("横滚 roll", 1, "bipolar", "左", "右", True),
             ("俯仰 pitch", 2, "bipolar", "上仰方向", "下俯方向", False),

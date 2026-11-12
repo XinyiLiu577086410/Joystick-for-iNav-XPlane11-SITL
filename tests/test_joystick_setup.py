@@ -123,7 +123,7 @@ class SetupSaveTests(unittest.TestCase):
             self.assertEqual([item.channel for item in config.axes], [1, 2, 4, 3, 8])
             self.assertEqual(config.axes[-1].kind, "multi")
             self.assertEqual([item.channel for item in config.buttons], [6, 7])
-            self.assertEqual(len(confirmed), 12)
+            self.assertEqual(len(confirmed), 13)
             service.save(config)
             loaded = load_config(path)
             self.assertEqual(loaded.keyboard.keys["arm"], "ctrl+a")
