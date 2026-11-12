@@ -197,7 +197,9 @@ hitl    installed v1.5.0  link: disconnected  (X-Plane plugin)
 向导会逐个动作要求按键：
 
 - 单个键：直接按，例如 `w`；
-- 组合键：先按住 `Ctrl` / `Shift` / `Alt` / `Win`，再按主键；
+- 单个修饰键：直接按一下 `Shift` / `Ctrl`，会得到 `shift` / `ctrl`；
+- 组合键：先按住 `Ctrl` / `Shift` / `Alt` / `Win`，再按主键；例如 `Ctrl+Shift+Space`；
+- 纯修饰键组合也可以：按住 `Ctrl+Shift` 再松开，得到 `ctrl+shift`；
 - `s` 跳过当前动作，`q` 退出且不写入；
 - 结束后自动备份原配置、写入 `config\hid2msp_inav.json` 并校验。
 

@@ -1982,6 +1982,7 @@ def cmd_setup_keyboard(no_write: bool = False, restart: bool = False) -> int:
     print("=== keyboard binding setup ===")
     print("For each action press the key you want. Combinations are supported:")
     print("hold Ctrl/Shift/Alt/Win, then press the main key.")
+    print("A modifier on its own is valid too: press and release Shift or Ctrl.")
     print("Example: Ctrl+Shift+Space gives 'ctrl+shift+space'.")
     print("Press Enter to set, 's' to skip, 'q' to quit without writing.\n")
 

@@ -78,6 +78,7 @@ _VK: Dict[str, int] = {
     "delete": 0x2E,
     "left_win": 0x5B,
     "right_win": 0x5C,
+    "win": 0x5B,
     "num0": 0x60,
     "num1": 0x61,
     "num2": 0x62,
@@ -225,20 +226,34 @@ class KeyCombo:
     label: str = ""
 
     def is_down(self) -> bool:
-        if not _key_down(self.vk):
+        if self.vk in (0x5B, 0x5C):
+            main_down = _modifier_down(self.vk)
+        else:
+            main_down = _key_down(self.vk)
+        if not main_down:
             return False
         return all(_modifier_down(code) for code in self.modifiers)
+
+
+def _canonical_modifier(name: str) -> str:
+    value = _MODIFIERS[name]
+    return {0x11: "ctrl", 0x10: "shift", 0x12: "alt", 0x5B: "win"}[value]
 
 
 def normalize_combo(spec: str) -> str:
     """Return a canonical ``ctrl+shift+space`` style binding.
 
-    Raises ValueError for unknown keys, duplicate modifiers, modifier-only
-    combinations or more than one main key.
+    A binding may be a single key, a modifier combination such as
+    ``ctrl+shift``, or modifiers plus one normal key.  Raises ValueError for
+    unknown keys or more than one main key.
     """
     parts = [part.strip().lower() for part in str(spec).split("+") if part.strip()]
     if not parts:
         raise ValueError("empty key binding")
+
+    if all(part in _MODIFIERS for part in parts):
+        modifiers = {_canonical_modifier(part) for part in parts}
+        return "+".join(name for name in _MODIFIER_ORDER if name in modifiers)
 
     modifiers: List[str] = []
     main: Optional[str] = None
@@ -246,8 +261,7 @@ def normalize_combo(spec: str) -> str:
         if part in _MODIFIERS:
             if main is not None:
                 raise ValueError(f"modifier {part!r} must come before the main key")
-            if part not in modifiers:
-                modifiers.append(part)
+            modifiers.append(_canonical_modifier(part))
         else:
             if main is not None:
                 raise ValueError("a combination can only contain one main key")
@@ -260,18 +274,7 @@ def normalize_combo(spec: str) -> str:
     if _VK[main] in _MODIFIER_VKS:
         raise ValueError(f"{main!r} is a modifier; put it before a normal key")
 
-    canonical_mods = [name for name in _MODIFIER_ORDER if name in modifiers]
-    if len(canonical_mods) != len(modifiers):
-        # Aliases such as control/ctrl both map to the same modifier.
-        canonical_mods = []
-        for name in modifiers:
-            canonical = "ctrl" if _MODIFIERS[name] == 0x11 else (
-                "shift" if _MODIFIERS[name] == 0x10 else (
-                    "alt" if _MODIFIERS[name] == 0x12 else "win"))
-            if canonical not in canonical_mods:
-                canonical_mods.append(canonical)
-        canonical_mods.sort(key=_MODIFIER_ORDER.index)
-
+    canonical_mods = sorted(set(modifiers), key=_MODIFIER_ORDER.index)
     return "+".join(canonical_mods + [main])
 
 
@@ -373,26 +376,40 @@ def capture_combo(timeout: float = 30.0) -> Optional[str]:
             quiet_since = None
         time.sleep(0.01)
 
+    pressed_mods: List[str] = []
+    held_mods: set[str] = set()
     while time.monotonic() < deadline:
-        main = next((vk for vk in capture_keys if _key_down(vk)), None)
-        if main is None:
-            time.sleep(0.01)
-            continue
+        normal = next((vk for vk in capture_keys if _key_down(vk)), None)
+        current_mods = {
+            name for name in _MODIFIER_ORDER if _modifier_down(_MODIFIERS[name])
+        }
 
-        modifiers: List[str] = []
-        for name, vk in (("ctrl", 0x11), ("shift", 0x10), ("alt", 0x12), ("win", 0x5B)):
-            if _modifier_down(vk):
-                modifiers.append(name)
+        if normal is not None:
+            modifiers = [name for name in _MODIFIER_ORDER if name in current_mods]
 
-        # Wait for a full release so the next capture does not see the same key.
-        while any(_key_down(vk) for vk in capture_keys) or any(
-            _modifier_down(vk) for vk in (0x11, 0x10, 0x12, 0x5B)
-        ):
-            if time.monotonic() >= deadline:
-                return None
-            time.sleep(0.01)
+            # Wait for a full release so the next capture does not see the same key.
+            while any(_key_down(vk) for vk in capture_keys) or any(
+                _modifier_down(vk) for vk in (0x11, 0x10, 0x12, 0x5B)
+            ):
+                if time.monotonic() >= deadline:
+                    return None
+                time.sleep(0.01)
 
-        return "+".join(modifiers + [_display_key_name(main)])
+            return "+".join(modifiers + [_display_key_name(normal)])
+
+        for name in _MODIFIER_ORDER:
+            if name in current_mods and name not in held_mods:
+                pressed_mods.append(name)
+        held_mods = current_mods
+
+        # A modifier pressed and released by itself (Shift, Ctrl, ...) is a
+        # valid binding; a modifier held while a normal key goes down is a
+        # combination and was handled above.
+        if not current_mods and pressed_mods:
+            unique = [name for name in _MODIFIER_ORDER if name in set(pressed_mods)]
+            return "+".join(unique)
+
+        time.sleep(0.01)
     return None
 
 
