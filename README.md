@@ -345,6 +345,7 @@ SITL 启动时**只读** `config\runtime\plane.bin`（eeprom）。
 | `SITL ports already in use` | 旧 SITL 没退 | `.\hidctl.cmd stop`，再用 `netstat -ano | findstr 5760` 确认 |
 | `bridge exited immediately` | pygame 缺失且键盘不可用，或配置错误 | 看 `logs\bridge.log`；`.\hidctl.cmd doctor` |
 | 键盘没反应 | X-Plane 不是前台窗口（`foreground_only`），或焦点在管理员权限的程序上 | 把 X-Plane 切到前台；必要时用普通权限运行 |
+| 提示 `another hidctl operation is in progress` | 上次 hidctl 被关闭，`run\hidctl.lock` 残留 | `.\hidctl.cmd unlock`；新版会按锁里的 PID 自动清理已经退出的进程 |
 | 手柄没反应 | 没装 pygame，或轴编号不同 | `python scripts\hid2msp.py --list` 看轴/按键编号，再改 JSON |
 | HITL 菜单不出现 | 没加载 INAV Surfwing（插件是 Aircraft 插件） | 加载该机型；勾选 `Show extra aircraft from old versions` |
 | `unable to arm no rc link` | bridge 没运行或没连上 5762 | `.\hidctl.cmd status`；`.\hidctl.cmd start bridge` |

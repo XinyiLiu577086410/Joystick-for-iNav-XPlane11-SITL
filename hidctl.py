@@ -2266,27 +2266,70 @@ def cmd_doctor() -> int:
 # ---------------------------------------------------------------------------
 # Locking
 # ---------------------------------------------------------------------------
+def _lock_owner_pid(lock: Path) -> int | None:
+    try:
+        first = lock.read_text(encoding="utf-8", errors="replace").splitlines()[0]
+        return int(first.strip())
+    except (OSError, ValueError, IndexError):
+        return None
+
+
 def acquire_lock() -> bool:
     ensure_dirs()
     lock = RUN / "hidctl.lock"
-    try:
-        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        with os.fdopen(fd, "w") as fh:
-            fh.write(f"{os.getpid()}\n{now()}\n")
-        return True
-    except FileExistsError:
+    while True:
         try:
-            age = time.time() - lock.stat().st_mtime
-        except OSError:
-            age = 0
-        if age > 120:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            with os.fdopen(fd, "w") as fh:
+                fh.write(f"{os.getpid()}\n{now()}\n")
+            return True
+        except FileExistsError:
+            owner = _lock_owner_pid(lock)
             try:
-                lock.unlink()
+                age = time.time() - lock.stat().st_mtime
             except OSError:
-                pass
-            return acquire_lock()
-        err("another hidctl operation is in progress (run\\hidctl.lock)")
-        return False
+                age = 0
+
+            # A closed terminal leaves the file behind but not the process.
+            if owner == os.getpid() or (owner is not None and not pid_exists(owner)):
+                try:
+                    lock.unlink()
+                    continue
+                except OSError:
+                    pass
+            elif owner is None and age > 120:
+                try:
+                    lock.unlink()
+                    continue
+                except OSError:
+                    pass
+
+            detail = f" pid {owner}" if owner is not None else ""
+            err(f"another hidctl operation is in progress (run\\hidctl.lock{detail})")
+            return False
+
+
+def cmd_unlock(force: bool = False) -> int:
+    lock = RUN / "hidctl.lock"
+    if not lock.is_file():
+        print("no lock file")
+        return 0
+    owner = _lock_owner_pid(lock)
+    if owner is not None and owner != os.getpid() and pid_exists(owner) and not force:
+        err(f"run\\hidctl.lock is held by running hidctl pid {owner}")
+        err("wait for it to finish, or use: hidctl.cmd unlock --force")
+        return 1
+    try:
+        lock.unlink()
+    except OSError as exc:
+        err(f"cannot remove run\\hidctl.lock: {exc}")
+        return 1
+    if owner is not None:
+        print(f"removed run\\hidctl.lock (owner pid {owner})")
+    else:
+        print("removed run\\hidctl.lock")
+    audit("unlock")
+    return 0
 
 
 def release_lock() -> None:
@@ -2403,6 +2446,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     capture.add_argument("--seconds", type=float, default=180.0, help="capture duration (default 180)")
 
+    unlock = sub.add_parser("unlock", help="remove a stale run\\hidctl.lock")
+    unlock.add_argument("--force", action="store_true", help="remove even if the owner process is still alive")
+
     sub.add_parser("version")
     return parser
 
@@ -2463,6 +2509,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_invert(args.channel, args.restart)
         if command == "capture":
             return cmd_capture(args.seconds)
+        if command == "unlock":
+            return cmd_unlock(args.force)
         if command == "version":
             print(f"hidctl {VERSION} (windows)")
             return 0
