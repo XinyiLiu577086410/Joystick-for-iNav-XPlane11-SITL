@@ -220,6 +220,9 @@ class MacOSKeyboard:
     platform: str = "macos"
     backend: str = "quartz"
     foreground_process: str = "X-Plane"
+    _last_check: float = 0.0
+    _last_target: str = ""
+    _last_result: bool = True
 
     def available(self) -> bool:
         try:
@@ -239,6 +242,9 @@ class MacOSKeyboard:
     def foreground_matches(self, target: str) -> bool:
         if shutil.which("osascript") is None:
             return True
+        now = time.monotonic()
+        if target == self._last_target and now - self._last_check < 0.5:
+            return self._last_result
         try:
             output = subprocess.run(
                 [
@@ -251,9 +257,13 @@ class MacOSKeyboard:
                 errors="replace",
                 timeout=2.0,
             ).stdout.strip()
+            result = target.casefold() in output.casefold()
         except (OSError, subprocess.TimeoutExpired):
-            return True
-        return target.casefold() in output.casefold()
+            result = True
+        self._last_check = now
+        self._last_target = target
+        self._last_result = result
+        return result
 
     def validate(self, binding: str) -> None:
         resolve_combo(binding)

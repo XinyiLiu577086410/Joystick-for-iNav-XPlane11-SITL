@@ -230,6 +230,9 @@ def _name_for_keycode(code: int) -> str:
 class LinuxKeyboard:
     platform: str = "linux"
     backend: str = "x11"
+    _last_check: float = 0.0
+    _last_target: str = ""
+    _last_result: bool = True
 
     def _wayland(self) -> bool:
         return os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland" or bool(os.environ.get("WAYLAND_DISPLAY"))
@@ -257,6 +260,16 @@ class LinuxKeyboard:
     def foreground_matches(self, target: str) -> bool:
         if not shutil.which("xprop"):
             return True
+        now = time.monotonic()
+        if target == self._last_target and now - self._last_check < 0.5:
+            return self._last_result
+        result = self._check_foreground(target)
+        self._last_check = now
+        self._last_target = target
+        self._last_result = result
+        return result
+
+    def _check_foreground(self, target: str) -> bool:
         try:
             root = subprocess.run(
                 ["xprop", "-root", "_NET_ACTIVE_WINDOW"],
