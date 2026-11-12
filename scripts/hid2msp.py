@@ -19,8 +19,9 @@ Run:
     python hid2msp.py --keys
 
 Input is selected by config/keyboard.source:
-  auto      = gamepad if present, otherwise keyboard
-  hid       = force gamepad
+  auto      = gamepad if present, otherwise keyboard; if the gamepad
+              disappears, fall back to the keyboard (if configured), else exit
+  hid       = force gamepad; exit if it disappears
   keyboard  = force keyboard
 
 pygame is only needed for gamepad mode; keyboard mode uses GetAsyncKeyState.
@@ -267,6 +268,10 @@ def axis_to_pwm(raw: float, mapping: AxisMap) -> int:
 # ---------------------------------------------------------------------------
 # Gamepad
 # ---------------------------------------------------------------------------
+class GamepadDisconnected(RuntimeError):
+    """Raised when pygame/SDL reports that the active joystick is gone."""
+
+
 class Gamepad:
     def __init__(self) -> None:
         import pygame  # lazy import so --test works without pygame
@@ -282,10 +287,22 @@ class Gamepad:
         self.num_buttons = self.joy.get_numbuttons()
 
     def poll(self) -> Tuple[List[float], List[int]]:
-        self.pygame.event.pump()
-        axes = [self.joy.get_axis(i) for i in range(self.num_axes)]
-        buttons = [self.joy.get_button(i) for i in range(self.num_buttons)]
-        return axes, buttons
+        try:
+            self.pygame.event.pump()
+            if self.pygame.joystick.get_count() == 0 or not self.joy.get_init():
+                raise GamepadDisconnected("joystick no longer present")
+            removed_event = getattr(self.pygame, "JOYDEVICEREMOVED", None)
+            if removed_event is not None:
+                for event in self.pygame.event.get():
+                    if event.type == removed_event and event.instance_id == self.joy.get_instance_id():
+                        raise GamepadDisconnected("joystick removed")
+            axes = [self.joy.get_axis(i) for i in range(self.num_axes)]
+            buttons = [self.joy.get_button(i) for i in range(self.num_buttons)]
+            return axes, buttons
+        except GamepadDisconnected:
+            raise
+        except Exception as exc:  # pygame.error, invalid joystick, SDL failure
+            raise GamepadDisconnected(str(exc)) from exc
 
     def close(self) -> None:
         try:
@@ -418,6 +435,7 @@ def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
                 gamepad = Gamepad()
                 print(f"gamepad: {gamepad.name}  axes={gamepad.num_axes} buttons={gamepad.num_buttons}")
             except Exception as gamepad_error:
+                gamepad = None
                 try:
                     keyboard = KeyboardInput(cfg.keyboard)
                     print("keyboard: enabled (no gamepad detected)")
@@ -455,12 +473,15 @@ def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
         link.close()
         return 2
 
+    allow_keyboard_fallback = (not test) and source == "auto" and cfg.keyboard.enabled
+
     period = 1.0 / max(1.0, cfg.rate_hz)
     toggles: Dict[int, bool] = {}
     previous_buttons: Dict[int, bool] = {}
     next_tx = time.monotonic()
     next_log = next_tx + 1.0
     started = time.monotonic()
+    last_channels: Optional[List[int]] = None
 
     try:
         while True:
@@ -468,7 +489,31 @@ def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
             if test:
                 channels = synthetic_channels(now - started)
             elif gamepad is not None:
-                axes, buttons = gamepad.poll()
+                try:
+                    axes, buttons = gamepad.poll()
+                except GamepadDisconnected as exc:
+                    print(f"gamepad disconnected: {exc}", file=sys.stderr, flush=True)
+                    gamepad.close()
+                    gamepad = None
+                    if allow_keyboard_fallback:
+                        try:
+                            keyboard = KeyboardInput(cfg.keyboard)
+                            if last_channels is not None:
+                                keyboard.restore_channels(last_channels)
+                            print(
+                                "keyboard: enabled (joystick fallback)",
+                                flush=True,
+                            )
+                            continue
+                        except Exception as kb_exc:
+                            print(
+                                f"keyboard fallback unavailable: {kb_exc}",
+                                file=sys.stderr,
+                                flush=True,
+                            )
+                            return 2
+                    print("no keyboard fallback configured; exiting bridge", file=sys.stderr, flush=True)
+                    return 2
                 channels = build_channels(cfg, axes, buttons, toggles, previous_buttons)
             elif keyboard is not None:
                 channels = keyboard.poll()
@@ -476,6 +521,7 @@ def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
                 print("no input source active", file=sys.stderr)
                 return 2
 
+            last_channels = channels
             if not link.send_raw_rc(channels):
                 print(f"send failed: {link.last_error}; reconnecting...", file=sys.stderr)
                 time.sleep(0.5)

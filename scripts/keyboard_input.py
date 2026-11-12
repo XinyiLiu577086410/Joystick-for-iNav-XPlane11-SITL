@@ -582,6 +582,23 @@ class KeyboardInput:
         self.previous = states
         return self._build_channels()
 
+    def restore_channels(self, channels: List[int]) -> None:
+        """Seed the keyboard state from the last gamepad frame.
+
+        Used when the joystick disappears mid-flight so switching to the
+        keyboard does not reset throttle, arm state or flight mode.
+        """
+        if len(channels) < 9:
+            return
+        self.axes[0] = float(channels[0])
+        self.axes[1] = float(channels[1])
+        self.throttle = float(channels[2])
+        self.axes[2] = self.throttle
+        self.axes[3] = float(channels[3])
+        self.armed = channels[6] >= PWM_MID
+        self.mode = min(range(len(MODE_VALUES)), key=lambda i: abs(MODE_VALUES[i] - channels[7]))
+        self.previous = {name: False for name in self.combos}
+
     def close(self) -> None:
         return
 

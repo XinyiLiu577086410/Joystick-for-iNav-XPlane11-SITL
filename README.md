@@ -313,6 +313,9 @@ hitl    installed v1.5.0  link: disconnected  (X-Plane plugin)
 - `1`–`6` 是按下沿触发，不是按住；
 - 轴和油门按 `axis_rate` / `throttle_rate` 平滑变化，不会瞬间满舵；
 - 键盘模式不控制 CH6 NAV WP，CH6 固定 1000；
+- 运行中手柄掉线：`source=auto` 且键盘已配置时自动切到键盘继续发 RC，
+  并保留掉线前的油门/解锁/模式；`source=hid` 或键盘未配置时 bridge 退出（退出码 2），
+  SITL 会进入 failsafe；
 - `Ctrl` 同时是“油门减少”和 `Ctrl+A` 解锁的修饰键：按 `Ctrl+A` 时油门会同时下降，
   对解锁反而安全，但飞行中不要误按 `Ctrl`；
 - 默认只有 X-Plane 前台才响应，避免在浏览器/终端里误触。
@@ -950,6 +953,11 @@ A：`keyboard.source`：`auto` 有手柄用手柄，否则键盘；`hid` 强制�
 
 A：还没有生成本机配置。先跑 `.\hidctl.cmd setup joystick`（手柄）或
 `.\hidctl.cmd setup keyboard`（键盘），会写出 `config\hid2msp_inav.json`。
+
+**Q：手柄飞行中拔掉会怎样？**
+
+A：`source=auto` 且键盘已配置时，bridge 会自动切到键盘继续发 RC，并保留掉线前的
+油门/解锁/模式；`source=hid` 或键盘没配置时，bridge 直接退出（退出码 2），SITL 进入 failsafe。
 
 **Q：Configurator 连不上 5760？**
 
