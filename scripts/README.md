@@ -1,41 +1,27 @@
-# scripts
+# scripts（legacy）
 
-组件生命周期统一由仓库根目录的 `hidctl.cmd` / `hidctl.py` 管理，本目录只保留被它调用的程序和标定工具。
+`hidctl.py` 和 `scripts/hid2msp.py` 已从 `cross-platform` 分支移除；新实现位于：
 
-| 文件 | 用途 |
+```text
+src/hidrx/
+```
+
+新入口：
+
+```bash
+hidrx ...
+# 或
+python -m hidrx.apps.cli ...
+```
+
+本目录剩余文件是旧分支留下的独立工具/参考实现，**不被 `hidrx` 调用**：
+
+| 文件 | 状态 |
 |---|---|
-| `hid2msp.py` | HID 手柄/遥控器或键盘 → MSP `SET_RAW_RC` 桥；手柄掉线时自动回退键盘（若已配置） |
-| `logpump.py` | 给 SITL/bridge 输出加时间戳、记录退出码、维护 PID 文件 |
-| `msp_probe.py` | 通过 MSP 读飞控状态 / 发送 RC 帧 |
-| `msp_tap.py` | 用户态 TCP tap，记录插件 → SITL 的 MSP 流量 |
-| `keyboard_input.py` | Windows 键盘读取（`GetAsyncKeyState`）、X-Plane 前台检测、组合键、键位映射与键盘通道生成 |
-| `calibrate_hid.py` | 交互式标定 AETR 轴，结果写入 `config/calibration.json` |
+| `keyboard_input.py` | 旧 Windows 键盘实现，仅参考 |
+| `logpump.py` | 旧日志包装，仅参考 |
+| `calibrate_hid.py` | 独立手柄标定脚本，未接入新 CLI |
+| `msp_probe.py` | 独立 MSP 探测工具 |
+| `msp_tap.py` | 独立 TCP tap 工具 |
 
-首次安装必须运行 `.\hidctl.cmd setup joystick`（手柄）或 `.\hidctl.cmd setup keyboard`（键盘）；
-生成的 `config/hid2msp_inav.json` 已被 `.gitignore` 排除，仓库不附带默认映射。
-
-## 常用命令（在仓库根目录执行）
-
-```powershell
-.\hidctl.cmd start              # SITL + bridge
-.\hidctl.cmd status
-.\hidctl.cmd setup joystick       # 手柄轴/方向设置向导
-.\hidctl.cmd setup keyboard     # 键盘键位/组合键设置向导
-.\hidctl.cmd logs sitl -f
-.\hidctl.cmd doctor
-python scripts\hid2msp.py --keys
-.\hidctl.cmd capture --seconds 180   # 抓插件 <-> SITL 的 MSP
-.\hidctl.cmd unlock             # 清理残留 run\hidctl.lock
-.\hidctl.cmd stop
-
-.\hidctl.cmd backup eeprom --name before-pid
-.\hidctl.cmd backups
-.\hidctl.cmd restore eeprom <backup> --yes
-.\hidctl.cmd reset eeprom --yes
-```
-
-标定摇杆：
-
-```powershell
-python scripts\calibrate_hid.py
-```
+需要新功能时不要再改这些文件，改 `src/hidrx/`。
