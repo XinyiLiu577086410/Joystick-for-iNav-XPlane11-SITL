@@ -928,6 +928,6 @@ Linux 需要 `xvfb-run` 才能测 X11 键盘/前台窗口；Wayland 只测降级
 - **Phase 6：部分完成** — `services/inav.py` 支持 `--inav-path` / `--inav-version` / 环境变量 / active / 自动最高版本，按版本隔离 eeprom/meta/CLI 配置，版本不匹配拒绝。
 - **Phase 7：部分完成** — `apps/cli.py` 已提供 `inav list/use/check`、`config check/load`、`setup keyboard/joystick`、`start/stop/restart/logs/status/doctor`、`backup/backups/restore/reset`、`--input` 与版本参数。
 - **文档：完成（初稿）** — 根 `README.md` 已改为三平台用法，包含首次 setup、INAV 版本、输入模式、eeprom、doctor、旧 `hidctl` 迁移表和当前限制。
-- **Phase 8：完成（首轮）** — `.github/workflows/cross-platform.yml` 已在 GitHub Actions 上连续通过 Windows/macOS/Ubuntu；run 10 实际执行了 POSIX 进程 contract test。
+- **Phase 8：完成（首轮）** — `.github/workflows/cross-platform.yml` 在 GitHub Actions 上 run 13 的 Windows/macOS/Ubuntu 三个 job 全部 success；macOS/Linux job 实际执行了 POSIX 进程 contract test。
 - **Phase 4+：进行中** — 新 bridge 运行时已接入；完整 CLI 兼容、真实三平台交互验证待做。
 
