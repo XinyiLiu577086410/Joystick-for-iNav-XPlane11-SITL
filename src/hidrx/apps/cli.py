@@ -18,6 +18,7 @@ from ..services.inav import InavError, InavService
 from ..services.runtime import RuntimeStore
 from ..services.setup import KeyboardSetupService, SetupError
 from ..services.sitl import SitlError, SitlService
+from ..services.status import StatusService
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -225,47 +226,32 @@ def cmd_stop(context: Context, args: argparse.Namespace) -> int:
 
 
 def cmd_status(context: Context, args: argparse.Namespace) -> int:
-    data = {"platform": context.platform.id, "components": {}}
-    for component in ("sitl", "bridge"):
-        handle = context.store.load(component)
-        alive = handle is not None and context.platform.process.is_alive(handle)
-        data["components"][component] = {
-            "running": alive,
-            "pid": handle.pid if handle is not None else None,
-            "exe": handle.exe if handle is not None else None,
-        }
-    try:
-        selection = context.inav.resolve()
-    except InavError as exc:
-        selection = None
-        data["inav_error"] = str(exc)
-    if selection is not None:
-        data["inav"] = {
-            "version": selection.install.version,
-            "build": selection.install.build,
-            "path": str(selection.install.path),
-            "eeprom": str(selection.eeprom),
-            "source": selection.source,
-        }
-    try:
-        data["config"] = {"path": str(context.config.config_path), "loaded": True}
-        context.config.load()
-    except ConfigError as exc:
-        data["config"] = {"path": str(context.config.config_path), "loaded": False, "error": str(exc)}
-
+    report = StatusService(
+        context.platform,
+        context.inav,
+        context.config,
+        context.store,
+    ).collect()
     if args.json:
-        print(json.dumps(data, indent=2))
+        print(json.dumps(report.as_dict(), indent=2))
         return 0
-    print(f"platform  {context.platform.id}")
-    for component, info in data["components"].items():
-        state = f"running pid={info['pid']}" if info["running"] else "stopped"
-        print(f"{component:9} {state}")
-    if selection is not None:
-        print(f"inav      {selection.install.version} ({selection.source})")
-        print(f"eeprom    {selection.eeprom}")
-    elif "inav_error" in data:
-        print(f"inav      error: {data['inav_error']}")
-    print(f"config    {context.config.config_path}")
+
+    print(f"platform  {report.platform}")
+    for name, component in report.components.items():
+        state = f"running pid={component.pid}" if component.running else "stopped"
+        print(f"{name:9} {state}")
+    if report.inav is not None:
+        print(f"inav      {report.inav['version']} ({report.inav['source']})")
+        print(f"eeprom    {report.inav['eeprom']}")
+    elif report.inav_error:
+        print(f"inav      error: {report.inav_error}")
+    ports = " ".join(f"{port}={'open' if open_ else 'closed'}" for port, open_ in report.ports.items())
+    print(f"ports     {ports}")
+    if report.xplane is not None:
+        print(f"xplane    {report.xplane['path'] or 'not found'}")
+    print(f"config    {report.config.get('path')}")
+    if report.config.get("error"):
+        print(f"config    error: {report.config['error']}")
     return 0
 
 
