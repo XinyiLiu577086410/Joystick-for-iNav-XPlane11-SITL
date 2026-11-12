@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hidrx"
+version = "0.1.0"
+description = "Cross-platform INAV SITL bridge and lifecycle manager"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+joystick = ["pygame>=2.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
