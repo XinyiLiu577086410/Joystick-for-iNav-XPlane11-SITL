@@ -16,8 +16,8 @@ from ..platform.base import Paths, ProcessManager
 class BridgeService:
     process: ProcessManager
     paths: Paths
-    bridge_script: Path
     python: str = sys.executable
+    bridge_module: str = "hidrx.apps.bridge"
 
     def command(
         self,
@@ -28,12 +28,12 @@ class BridgeService:
         argv = [
             self.python,
             "-u",
-            str(self.bridge_script),
+            "-m",
+            self.bridge_module,
             "--config",
             str(config_path),
             "--port",
             str(port),
-            "-v",
         ]
         if input_source:
             if input_source not in INPUT_MODES:
@@ -48,11 +48,13 @@ class BridgeService:
         port: int = 5762,
     ) -> ProcessHandle:
         self.paths.logs_dir.mkdir(parents=True, exist_ok=True)
+        source = str(self.paths.repo_root / "src")
         return self.process.spawn(
             ProcessSpec(
                 argv=self.command(config_path, input_source, port),
                 cwd=self.paths.repo_root,
                 log_path=self.paths.logs_dir / "bridge.log",
+                env={"PYTHONPATH": source},
             )
         )
 

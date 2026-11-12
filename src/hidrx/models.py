@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Protocol, Sequence, Tuple
 
 
 @dataclass(frozen=True)
@@ -74,3 +74,13 @@ class PluginInfo:
 class ProcessInfo:
     handle: ProcessHandle
     name: str
+
+
+class GamepadDevice(Protocol):
+    name: str
+    num_axes: int
+    num_buttons: int
+
+    def snapshot(self) -> Tuple[Sequence[float], Sequence[int]]: ...
+
+    def close(self) -> None: ...

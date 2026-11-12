@@ -58,7 +58,6 @@ class ServiceTests(unittest.TestCase):
         service = BridgeService(
             process=process,
             paths=self.paths,
-            bridge_script=self.root / "hid2msp.py",
         )
         handle = service.start(self.root / "config" / "hid2msp_inav.json", "joystick")
         self.assertTrue(process.is_alive(handle))
@@ -70,7 +69,6 @@ class ServiceTests(unittest.TestCase):
         service = BridgeService(
             process=FakeProcessManager(),
             paths=self.paths,
-            bridge_script=self.root / "hid2msp.py",
         )
         with self.assertRaises(ValueError):
             service.command(self.root / "config.json", "nonsense")

@@ -76,7 +76,6 @@ class Context:
         self.bridge = BridgeService(
             self.platform.process,
             self.paths,
-            self.paths.repo_root / "scripts" / "hid2msp.py",
         )
 
 

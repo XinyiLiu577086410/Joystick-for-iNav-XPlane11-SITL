@@ -3,25 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Protocol, Sequence, Tuple
+from typing import List, Tuple
+
+from ..models import GamepadDevice
 
 
 class GamepadError(RuntimeError):
     pass
-
-
-class GamepadDevice(Protocol):
-    name: str
-    num_axes: int
-    num_buttons: int
-
-    def snapshot(self) -> Tuple[Sequence[float], Sequence[int]]: ...
-
-    def close(self) -> None: ...
-
-
-class GamepadBackend(Protocol):
-    def open(self) -> GamepadDevice: ...
 
 
 @dataclass
