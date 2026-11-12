@@ -337,6 +337,13 @@ def is_foreground_process(process_name: str = "X-Plane.exe", title_hint: str = "
     return False
 
 
+def _all_keys_released() -> bool:
+    for vk in set(_VK.values()) | {0x5B, 0x5C}:
+        if _key_down(vk):
+            return False
+    return True
+
+
 def capture_combo(timeout: float = 30.0) -> Optional[str]:
     """Wait for the user to press keys and return a canonical combo string.
 
@@ -352,6 +359,20 @@ def capture_combo(timeout: float = 30.0) -> Optional[str]:
     )
     print("Press the key combination (hold modifiers, then press the main key)...", flush=True)
     deadline = time.monotonic() + timeout
+
+    # The Enter used to confirm the wizard prompt may still be held.  Wait for
+    # a short quiet period so it is not captured as the binding.
+    quiet_since: Optional[float] = None
+    while time.monotonic() < deadline:
+        if _all_keys_released():
+            if quiet_since is None:
+                quiet_since = time.monotonic()
+            elif time.monotonic() - quiet_since >= 0.15:
+                break
+        else:
+            quiet_since = None
+        time.sleep(0.01)
+
     while time.monotonic() < deadline:
         main = next((vk for vk in capture_keys if _key_down(vk)), None)
         if main is None:

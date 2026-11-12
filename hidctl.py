@@ -1950,6 +1950,19 @@ KEYBOARD_SETUP_STEPS = [
 ]
 
 
+def _flush_console_input() -> None:
+    """Drop key presses that went to the console while capture_combo() ran."""
+    try:
+        import msvcrt
+    except ImportError:
+        return
+    try:
+        while msvcrt.kbhit():
+            msvcrt.getwch()
+    except OSError:
+        pass
+
+
 def cmd_setup_keyboard(no_write: bool = False, restart: bool = False) -> int:
     try:
         data = json.loads(HID_CONFIG.read_text(encoding="utf-8"))
@@ -1994,6 +2007,7 @@ def cmd_setup_keyboard(no_write: bool = False, restart: bool = False) -> int:
 
             while True:
                 captured = capture_combo(30.0)
+                _flush_console_input()
                 if captured is None:
                     err("  timeout, no key captured")
                     break
