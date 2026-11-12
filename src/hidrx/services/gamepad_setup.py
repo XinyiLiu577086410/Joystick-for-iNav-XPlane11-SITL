@@ -126,6 +126,7 @@ class GamepadSetupService:
     keyboard_backend: str
     timeout: float = 10.0
     hold_seconds: float = 1.0
+    mode_hold_seconds: float = 3.0
 
     def _sample_direction(
         self,
@@ -247,13 +248,13 @@ class GamepadSetupService:
             suffix = "" if attempt == 0 else "（上一次没有检测到，请重新做一次）"
             prompt("模式 mode：把模式旋钮转到最低档（第 1 档）" + suffix)
             confirm("确认模式旋钮在最低档")
-            prompt("模式 mode：现在把旋钮转到最高档（第 6 档），保持约 1 秒")
+            prompt("模式 mode：现在把旋钮转到最高档（第 6 档），保持约 3 秒")
             try:
                 mode_axis, mode_delta = detect_axis(
                     device,
                     self.timeout,
-                    threshold=0.15,
-                    hold_seconds=self.hold_seconds,
+                    threshold=0.8,
+                    hold_seconds=max(self.mode_hold_seconds, self.hold_seconds),
                     exclude_axes=set(used_axes),
                 )
             except SetupError:

@@ -134,6 +134,7 @@ class SetupSaveTests(unittest.TestCase):
                 "fake",
                 timeout=1.0,
                 hold_seconds=0.0,
+                mode_hold_seconds=0.0,
             )
             confirmed = []
             config = service.capture(
