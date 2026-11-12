@@ -39,6 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     setup = sub.add_parser("setup", help="interactive setup (no defaults)")
     setup_sub = setup.add_subparsers(dest="setup_command", required=True)
     setup_sub.add_parser("keyboard", help="capture every keyboard action")
+    setup_sub.add_parser("joystick", help="detect sticks, mode knob and arm button")
 
     for name in ("start", "stop"):
         command = sub.add_parser(name)
@@ -129,29 +130,54 @@ def cmd_config(context: Context, args: argparse.Namespace) -> int:
 
 
 def cmd_setup(context: Context, args: argparse.Namespace) -> int:
-    if args.setup_command != "keyboard":
-        print(f"unsupported setup: {args.setup_command}", file=sys.stderr)
-        return 1
-    service = KeyboardSetupService(
-        keyboard=context.platform.keyboard,
-        config_path=context.config.config_path,
-        platform_id=context.platform.id,
-    )
-
-    def prompt(action: str) -> None:
-        print(f"\n{action}: press a key or combination (30s timeout)...")
-
-    try:
-        keys = service.capture_all(
-            lambda action: context.platform.keyboard.capture(30.0),
-            prompt=prompt,
+    if args.setup_command == "keyboard":
+        service = KeyboardSetupService(
+            keyboard=context.platform.keyboard,
+            config_path=context.config.config_path,
+            platform_id=context.platform.id,
         )
-        service.save(keys)
-    except (SetupError, ValueError, KeyboardInterrupt) as exc:
-        print(f"setup failed: {exc}", file=sys.stderr)
-        return 1
-    print(f"keyboard: saved {len(keys)} bindings to {context.config.config_path}")
-    return 0
+
+        def prompt(action: str) -> None:
+            print(f"\n{action}: press a key or combination (30s timeout)...")
+
+        try:
+            keys = service.capture_all(
+                lambda action: context.platform.keyboard.capture(30.0),
+                prompt=prompt,
+            )
+            service.save(keys)
+        except (SetupError, ValueError, KeyboardInterrupt) as exc:
+            print(f"setup failed: {exc}", file=sys.stderr)
+            return 1
+        print(f"keyboard: saved {len(keys)} bindings to {context.config.config_path}")
+        return 0
+
+    if args.setup_command == "joystick":
+        from ..platform.gamepad import GamepadError, PygameGamepad
+        from ..services.joystick_setup import JoystickSetupService
+
+        service = JoystickSetupService(
+            config_path=context.config.config_path,
+            platform_id=context.platform.id,
+            keyboard_backend=context.platform.keyboard.backend,
+        )
+        device = None
+        try:
+            device = PygameGamepad()
+            print(f"gamepad: {device.name} axes={device.num_axes} buttons={device.num_buttons}")
+            config = service.capture(device, prompt=lambda text: print(f"\n{text}"))
+            service.save(config)
+        except (GamepadError, SetupError, KeyboardInterrupt) as exc:
+            print(f"setup failed: {exc}", file=sys.stderr)
+            return 1
+        finally:
+            if device is not None:
+                device.close()
+        print(f"joystick: saved {len(config.axes)} axes/{len(config.buttons)} buttons")
+        return 0
+
+    print(f"unsupported setup: {args.setup_command}", file=sys.stderr)
+    return 1
 
 
 def cmd_start(context: Context, args: argparse.Namespace) -> int:
