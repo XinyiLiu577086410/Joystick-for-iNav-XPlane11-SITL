@@ -70,6 +70,22 @@ class DetectionTests(unittest.TestCase):
         self.assertEqual(axis, 0)
         self.assertGreaterEqual(time.monotonic() - started, 0.18)
 
+    def test_excluded_axis_is_ignored(self) -> None:
+        device = FakeGamepad(
+            [
+                ([0.0, 0.0], [0, 0]),
+                ([0.3, 0.9], [0, 0]),
+            ]
+        )
+        axis, _ = detect_axis(
+            device,
+            timeout=1.0,
+            threshold=0.2,
+            hold_seconds=0.0,
+            exclude_axes={1},
+        )
+        self.assertEqual(axis, 0)
+
 
 class SetupSaveTests(unittest.TestCase):
     def _frames(self):
@@ -127,7 +143,7 @@ class SetupSaveTests(unittest.TestCase):
             self.assertEqual([item.channel for item in config.axes], [1, 2, 4, 3, 8])
             self.assertEqual(config.axes[-1].kind, "multi")
             self.assertEqual([item.channel for item in config.buttons], [6, 7])
-            self.assertEqual(len(confirmed), 13)
+            self.assertEqual(len(confirmed), 14)
             service.save(config)
             loaded = load_config(path)
             self.assertEqual(loaded.keyboard.keys["arm"], "ctrl+a")

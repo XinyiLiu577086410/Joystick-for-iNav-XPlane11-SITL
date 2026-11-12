@@ -61,7 +61,7 @@ hidrx setup keyboard
 - yaw → CH4
 - 模式旋钮 → CH8（6 档）
 - NAV WP 开关 → CH6（LOW/HIGH）
-- arm 按钮 → CH7
+- arm 开关 → CH7（上锁/解锁位置）
 
 写入配置并带上当前平台标识。
 
