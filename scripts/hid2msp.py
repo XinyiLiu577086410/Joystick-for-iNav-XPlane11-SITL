@@ -410,6 +410,17 @@ def synthetic_channels(t: float) -> List[int]:
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
+def _safe_handback(current: Sequence[int], candidate: Sequence[int]) -> bool:
+    """Only reclaim the gamepad when throttle, arm state and mode match."""
+    if abs(int(current[2]) - int(candidate[2])) > 75:
+        return False
+    if (current[6] >= PWM_MID) != (candidate[6] >= PWM_MID):
+        return False
+    if current[7] != candidate[7]:
+        return False
+    return True
+
+
 def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
     link = MspLink(cfg.host, cfg.port)
     if not link.connect():
@@ -442,8 +453,11 @@ def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
                 except Exception as keyboard_error:
                     print(f"gamepad error: {gamepad_error}", file=sys.stderr)
                     print(f"keyboard error: {keyboard_error}", file=sys.stderr)
-                    link.close()
-                    return 2
+                    print(
+                        "no input available; RC paused, waiting for joystick",
+                        file=sys.stderr,
+                        flush=True,
+                    )
         elif source == "keyboard":
             try:
                 keyboard = KeyboardInput(cfg.keyboard)
@@ -457,9 +471,11 @@ def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
                 gamepad = Gamepad()
                 print(f"gamepad: {gamepad.name}  axes={gamepad.num_axes} buttons={gamepad.num_buttons}")
             except Exception as exc:
-                print(f"gamepad error: {exc}", file=sys.stderr)
-                link.close()
-                return 2
+                print(
+                    f"gamepad error: {exc}; RC paused, waiting for joystick",
+                    file=sys.stderr,
+                    flush=True,
+                )
         else:
             print(f"invalid keyboard source: {source}", file=sys.stderr)
             link.close()
@@ -482,6 +498,13 @@ def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
     next_log = next_tx + 1.0
     started = time.monotonic()
     last_channels: Optional[List[int]] = None
+    next_gamepad_probe = time.monotonic() + 2.0
+
+    def try_gamepad() -> Optional[Gamepad]:
+        try:
+            return Gamepad()
+        except Exception:
+            return None
 
     try:
         while True:
@@ -495,7 +518,8 @@ def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
                     print(f"gamepad disconnected: {exc}", file=sys.stderr, flush=True)
                     gamepad.close()
                     gamepad = None
-                    if allow_keyboard_fallback:
+                    next_gamepad_probe = now + 2.0
+                    if allow_keyboard_fallback and keyboard is None:
                         try:
                             keyboard = KeyboardInput(cfg.keyboard)
                             if last_channels is not None:
@@ -507,19 +531,59 @@ def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
                             continue
                         except Exception as kb_exc:
                             print(
-                                f"keyboard fallback unavailable: {kb_exc}",
+                                f"keyboard fallback unavailable: {kb_exc}; "
+                                "waiting for joystick reconnect",
                                 file=sys.stderr,
                                 flush=True,
                             )
-                            return 2
-                    print("no keyboard fallback configured; exiting bridge", file=sys.stderr, flush=True)
-                    return 2
+                    print(
+                        "joystick lost; RC paused (SITL should enter failsafe); "
+                        "waiting for reconnect",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    continue
                 channels = build_channels(cfg, axes, buttons, toggles, previous_buttons)
             elif keyboard is not None:
                 channels = keyboard.poll()
+                if allow_keyboard_fallback and now >= next_gamepad_probe:
+                    next_gamepad_probe = now + 2.0
+                    candidate = try_gamepad()
+                    if candidate is not None:
+                        try:
+                            cand_axes, cand_buttons = candidate.poll()
+                        except GamepadDisconnected:
+                            candidate.close()
+                        else:
+                            cand_channels = build_channels(cfg, cand_axes, cand_buttons, {}, {})
+                            if _safe_handback(channels, cand_channels):
+                                keyboard.close()
+                                keyboard = None
+                                gamepad = candidate
+                                toggles.clear()
+                                previous_buttons.clear()
+                                channels = cand_channels
+                                print("gamepad reconnected; RC control restored", flush=True)
+                            else:
+                                candidate.close()
+                                print(
+                                    "gamepad found but throttle/arm/mode unsafe; "
+                                    "staying on keyboard",
+                                    flush=True,
+                                )
             else:
-                print("no input source active", file=sys.stderr)
-                return 2
+                # No keyboard fallback: stay alive, send nothing, let SITL fail safe.
+                if now >= next_gamepad_probe:
+                    next_gamepad_probe = now + 2.0
+                    candidate = try_gamepad()
+                    if candidate is not None:
+                        gamepad = candidate
+                        toggles.clear()
+                        previous_buttons.clear()
+                        print("gamepad reconnected; RC control restored", flush=True)
+                        continue
+                time.sleep(0.2)
+                continue
 
             last_channels = channels
             if not link.send_raw_rc(channels):
@@ -561,6 +625,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--list", action="store_true", help="list gamepads and live axes/buttons")
     parser.add_argument("--keys", action="store_true", help="list keyboard-derived channels (no gamepad)")
     parser.add_argument("--source", choices=("auto", "hid", "keyboard"), default=None, help="override keyboard.source")
+    parser.add_argument(
+        "--input",
+        choices=("auto", "joystick", "keyboard"),
+        default=None,
+        help="input mode (joystick is the user-facing name for source=hid)",
+    )
     parser.add_argument("--test", action="store_true", help="send synthetic channel sweeps (no gamepad)")
     parser.add_argument("--once", action="store_true", help="send one frame and exit")
     parser.add_argument("-v", "--verbose", action="store_true", help="print channels once per second")
@@ -580,6 +650,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         cfg.port = args.port
     if args.rate:
         cfg.rate_hz = args.rate
+    if args.input:
+        args.source = "hid" if args.input == "joystick" else args.input
     if args.source:
         cfg.keyboard.enabled = True
         cfg.keyboard.source = args.source

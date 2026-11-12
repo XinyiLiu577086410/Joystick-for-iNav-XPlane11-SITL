@@ -659,7 +659,7 @@ def start_sitl(wait: bool = True) -> int:
     return 0
 
 
-def start_bridge(wait: bool = True) -> int:
+def start_bridge(wait: bool = True, input_source: str | None = None) -> int:
     ensure_dirs()
     running, _ = component_running("bridge")
     if running:
@@ -692,19 +692,19 @@ def start_bridge(wait: bool = True) -> int:
         err(f"bridge script not found: {BRIDGE}")
         return 1
 
-    pid = spawn(
-        "bridge",
-        [
-            sys.executable,
-            "-u",
-            str(BRIDGE),
-            "--config",
-            str(HID_CONFIG),
-            "--port",
-            "5762",
-            "-v",
-        ],
-    )
+    command = [
+        sys.executable,
+        "-u",
+        str(BRIDGE),
+        "--config",
+        str(HID_CONFIG),
+        "--port",
+        "5762",
+        "-v",
+    ]
+    if input_source:
+        command += ["--input", input_source]
+    pid = spawn("bridge", command)
     if pid is None:
         err("failed to start bridge; see logs\\bridge.log")
         return 1
@@ -719,11 +719,11 @@ def start_bridge(wait: bool = True) -> int:
     return 0
 
 
-def start_all() -> int:
+def start_all(input_source: str | None = None) -> int:
     rc = start_sitl()
     if rc != 0:
         return rc
-    rc = start_bridge()
+    rc = start_bridge(input_source=input_source)
     if rc != 0:
         err("bridge failed; stopping SITL to avoid a half-started stack")
         stop_component("sitl")
@@ -737,16 +737,16 @@ def stop_all() -> int:
     return 0
 
 
-def cmd_start(component: str, verbose: bool = True, follow: bool = False) -> int:
+def cmd_start(component: str, verbose: bool = True, follow: bool = False, input_source: str | None = None) -> int:
     names = ["sitl", "bridge"] if component == "all" else [component]
     offsets = {name: log_size(name) for name in names}
 
     if component == "sitl":
         rc = start_sitl()
     elif component == "bridge":
-        rc = start_bridge()
+        rc = start_bridge(input_source=input_source)
     else:
-        rc = start_all()
+        rc = start_all(input_source=input_source)
 
     if verbose:
         for name in names:
@@ -772,21 +772,21 @@ def cmd_stop(component: str, verbose: bool = True) -> int:
     return 0
 
 
-def cmd_restart(component: str, verbose: bool = True) -> int:
+def cmd_restart(component: str, verbose: bool = True, input_source: str | None = None) -> int:
     if component == "sitl":
         rc = cmd_stop("sitl", verbose)
         if rc != 0:
             return rc
-        return cmd_start("sitl", verbose, False)
+        return cmd_start("sitl", verbose, False, input_source)
     if component == "bridge":
         rc = cmd_stop("bridge", verbose)
         if rc != 0:
             return rc
-        return cmd_start("bridge", verbose, False)
+        return cmd_start("bridge", verbose, False, input_source)
     rc = cmd_stop("all", verbose)
     if rc != 0:
         return rc
-    return cmd_start("all", verbose, False)
+    return cmd_start("all", verbose, False, input_source)
 
 
 # ---------------------------------------------------------------------------
@@ -2446,6 +2446,13 @@ def build_parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="after starting, follow logs on stdout until Ctrl-C",
             )
+        if name in ("start", "restart"):
+            sp.add_argument(
+                "--input",
+                choices=("auto", "joystick", "keyboard"),
+                default=None,
+                help="input source: auto (default), joystick, or keyboard",
+            )
 
     sp = sub.add_parser("status")
     sp.add_argument("--json", action="store_true")
@@ -2538,11 +2545,20 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     try:
         if command == "start":
-            return cmd_start(args.component, verbose=args.verbose, follow=args.follow)
+            return cmd_start(
+                args.component,
+                verbose=args.verbose,
+                follow=args.follow,
+                input_source=getattr(args, "input", None),
+            )
         if command == "stop":
             return cmd_stop(args.component, verbose=args.verbose)
         if command == "restart":
-            return cmd_restart(args.component, verbose=args.verbose)
+            return cmd_restart(
+                args.component,
+                verbose=args.verbose,
+                input_source=getattr(args, "input", None),
+            )
         if command == "status":
             return cmd_status(args.json)
         if command == "logs":
