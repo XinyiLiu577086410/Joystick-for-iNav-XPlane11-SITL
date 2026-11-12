@@ -231,7 +231,16 @@ def cmd_setup(context: Context, args: argparse.Namespace) -> int:
         try:
             device = PygameGamepad()
             print(f"gamepad: {device.name} axes={device.num_axes} buttons={device.num_buttons}")
-            config = service.capture(device, prompt=lambda text: print(f"\n{text}"))
+
+            def confirm(text: str) -> None:
+                print(f"\n{text}")
+                input("按 Enter 继续...")
+
+            config = service.capture(
+                device,
+                prompt=lambda text: print(f"\n{text}"),
+                confirm=confirm,
+            )
             service.save(config)
         except (GamepadError, SetupError, KeyboardInterrupt) as exc:
             print(f"setup failed: {exc}", file=sys.stderr)

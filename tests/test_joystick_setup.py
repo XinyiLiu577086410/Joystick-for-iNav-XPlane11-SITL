@@ -55,13 +55,21 @@ class SetupSaveTests(unittest.TestCase):
     def _frames(self):
         return [
             ([0.0, 0.0, 0.0, 0.0, 0.0], [0, 0]),  # roll baseline
-            ([0.8, 0.0, 0.0, 0.0, 0.0], [0, 0]),  # roll
+            ([-0.9, 0.0, 0.0, 0.0, 0.0], [0, 0]),  # roll left
+            ([0.0, 0.0, 0.0, 0.0, 0.0], [0, 0]),  # roll baseline
+            ([0.9, 0.0, 0.0, 0.0, 0.0], [0, 0]),  # roll right
             ([0.0, 0.0, 0.0, 0.0, 0.0], [0, 0]),  # pitch baseline
-            ([0.0, 0.8, 0.0, 0.0, 0.0], [0, 0]),  # pitch
+            ([0.0, 0.9, 0.0, 0.0, 0.0], [0, 0]),  # pitch up
+            ([0.0, 0.0, 0.0, 0.0, 0.0], [0, 0]),  # pitch baseline
+            ([0.0, -0.9, 0.0, 0.0, 0.0], [0, 0]),  # pitch down
             ([0.0, 0.0, 0.0, 0.0, 0.0], [0, 0]),  # yaw baseline
-            ([0.0, 0.0, 0.8, 0.0, 0.0], [0, 0]),  # yaw
+            ([0.0, 0.0, -0.9, 0.0, 0.0], [0, 0]),  # yaw left
+            ([0.0, 0.0, 0.0, 0.0, 0.0], [0, 0]),  # yaw baseline
+            ([0.0, 0.0, 0.9, 0.0, 0.0], [0, 0]),  # yaw right
             ([0.0, 0.0, 0.0, 0.0, 0.0], [0, 0]),  # throttle baseline
-            ([0.0, 0.0, 0.0, 0.8, 0.0], [0, 0]),  # throttle
+            ([0.0, 0.0, 0.0, -0.9, 0.0], [0, 0]),  # throttle low
+            ([0.0, 0.0, 0.0, 0.0, 0.0], [0, 0]),  # throttle baseline
+            ([0.0, 0.0, 0.0, 0.9, 0.0], [0, 0]),  # throttle high
             ([0.0, 0.0, 0.0, 0.0, 0.0], [0, 0]),  # mode baseline
             ([0.0, 0.0, 0.0, 0.0, 0.8], [0, 0]),  # mode
             ([0.0, 0.0], [0, 0]),  # arm baseline
@@ -82,10 +90,15 @@ class SetupSaveTests(unittest.TestCase):
                 encoding="utf-8",
             )
             service = JoystickSetupService(path, "fake", "fake", timeout=1.0)
-            config = service.capture(FakeGamepad(self._frames()))
+            confirmed = []
+            config = service.capture(
+                FakeGamepad(self._frames()),
+                confirm=lambda text: confirmed.append(text),
+            )
             self.assertEqual([item.channel for item in config.axes], [1, 2, 4, 3, 8])
             self.assertEqual(config.axes[-1].kind, "multi")
             self.assertEqual(config.buttons[0].channel, 7)
+            self.assertEqual(len(confirmed), 10)
             service.save(config)
             loaded = load_config(path)
             self.assertEqual(loaded.keyboard.keys["arm"], "ctrl+a")

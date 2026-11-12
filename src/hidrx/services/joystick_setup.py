@@ -58,76 +58,124 @@ class JoystickSetupService:
     keyboard_backend: str
     timeout: float = 10.0
 
+    def _sample_direction(
+        self,
+        device: GamepadDevice,
+        prompt: Callable[[str], None],
+        confirm: Callable[[str], None],
+        control: str,
+        direction: str,
+        throttle: bool = False,
+    ) -> tuple[int, float]:
+        for attempt in range(3):
+            if throttle:
+                text = f"{control}：把油门拉到「{direction}」位置，保持约 1 秒再松开"
+            else:
+                text = f"{control}：把摇杆向「{direction}」打到最大，保持约 1 秒再松开"
+            if attempt:
+                text += "（上一次没有检测到，请重试）"
+            prompt(text)
+            try:
+                axis, delta = detect_axis(device, self.timeout)
+            except SetupError:
+                if attempt == 2:
+                    raise
+                continue
+            sign = "正" if delta > 0 else "负"
+            prompt(f"已检测到 {control}：axis {axis}，{sign}方向（变化 {delta:+.2f}）")
+            confirm("确认这一项，再采集下一项")
+            time.sleep(0.2)
+            return axis, delta
+        raise SetupError(f"{control}: 没有检测到有效的摇杆移动")
+
+    def _capture_pair(
+        self,
+        device: GamepadDevice,
+        prompt: Callable[[str], None],
+        confirm: Callable[[str], None],
+        label: str,
+        channel: int,
+        kind: str,
+        first_direction: str,
+        second_direction: str,
+        first_is_low: bool,
+        used_axes: dict[int, str],
+    ) -> AxisMap:
+        for attempt in range(3):
+            suffix = "" if attempt == 0 else "（上一次检测失败，请重新做这两个方向）"
+            if suffix:
+                prompt(suffix)
+            axis1, delta1 = self._sample_direction(
+                device, prompt, confirm, label, first_direction, throttle=kind == "unipolar"
+            )
+            axis2, delta2 = self._sample_direction(
+                device, prompt, confirm, label, second_direction, throttle=kind == "unipolar"
+            )
+            if axis1 != axis2:
+                prompt(f"{label}: 两个方向检测到了不同轴（axis {axis1} / axis {axis2}），重试")
+                continue
+            if delta1 * delta2 >= 0:
+                prompt(f"{label}: 两个方向没有形成正/负反向，重试")
+                continue
+            if axis1 in used_axes:
+                prompt(
+                    f"{label}: axis {axis1} 已经被 {used_axes[axis1]} 使用；"
+                    "请松开所有摇杆，只动这一项，重试"
+                )
+                continue
+            used_axes[axis1] = label
+            reverse = delta1 > 0 if first_is_low else delta1 < 0
+            return AxisMap(
+                axis=axis1,
+                channel=channel,
+                kind=kind,
+                reverse=reverse,
+                trim=PWM_MIN if kind == "unipolar" else 1500,
+            )
+        raise SetupError(
+            f"{label}: 连续 3 次没有采集到两个方向一致的轴；"
+            "请确认只移动对应摇杆，并且两个方向都打到最大"
+        )
+
     def capture(
         self,
         device: GamepadDevice,
         prompt: Callable[[str], None] = lambda text: None,
+        confirm: Callable[[str], None] = lambda text: None,
     ) -> BridgeConfig:
         specs = (
-            (
-                "roll",
-                1,
-                "bipolar",
-                "先把横滚摇杆回中，然后只把横滚摇杆向左或向右打到最大，保持约 1 秒再松开",
-            ),
-            (
-                "pitch",
-                2,
-                "bipolar",
-                "先松开所有摇杆，然后只把俯仰摇杆向上或向下打到最大，保持约 1 秒再松开",
-            ),
-            (
-                "yaw",
-                4,
-                "bipolar",
-                "先松开所有摇杆，然后只把偏航摇杆向左或向右打到最大，保持约 1 秒再松开",
-            ),
-            (
-                "throttle",
-                3,
-                "unipolar",
-                "先把油门拉到最低，再缓慢推到最高，保持约 1 秒再松开",
-            ),
+            ("横滚 roll", 1, "bipolar", "左", "右", True),
+            ("俯仰 pitch", 2, "bipolar", "上", "下", False),
+            ("偏航 yaw", 4, "bipolar", "左", "右", True),
+            ("油门 throttle", 3, "unipolar", "最低", "最高", True),
         )
         axes: List[AxisMap] = []
         used_axes: dict[int, str] = {}
-        for label, channel, kind, instruction in specs:
-            for attempt in range(3):
-                suffix = "" if attempt == 0 else "（上一次检测到重复轴，请重新做一次）"
-                prompt(f"CH{channel} {label}：{instruction}{suffix}")
-                axis, delta = detect_axis(device, self.timeout)
-                if axis in used_axes:
-                    prompt(
-                        f"检测到 axis {axis} 已经是 {used_axes[axis]} 的轴；"
-                        f"请松开所有摇杆，只移动 {label} 摇杆，再试一次"
-                    )
-                    continue
-                used_axes[axis] = label
-                axes.append(
-                    AxisMap(
-                        axis=axis,
-                        channel=channel,
-                        kind=kind,
-                        reverse=delta < 0,
-                        trim=PWM_MIN if kind == "unipolar" else 1500,
-                    )
+        for label, channel, kind, first, second, first_is_low in specs:
+            axes.append(
+                self._capture_pair(
+                    device,
+                    prompt,
+                    confirm,
+                    label,
+                    channel,
+                    kind,
+                    first,
+                    second,
+                    first_is_low,
+                    used_axes,
                 )
-                time.sleep(0.3)
-                break
-            else:
-                raise SetupError(
-                    f"{label}: 连续 3 次检测到已被其他通道占用的轴（"
-                    + ", ".join(f"axis {number}={name}" for number, name in used_axes.items())
-                    + "）；请确认只移动对应的摇杆"
-                )
+            )
 
         for attempt in range(3):
             suffix = "" if attempt == 0 else "（上一次检测到重复轴，请重新做一次）"
             prompt(
-                "CH8 mode：先把模式旋钮依次经过 6 个档位，然后停在任意档并保持约 1 秒"
+                "模式 mode：把模式旋钮依次经过 6 个档位，然后停在任意档并保持约 1 秒"
                 + suffix
             )
             mode_axis, _ = detect_axis(device, self.timeout)
+            prompt(f"已检测到 模式 mode：axis {mode_axis}")
+            confirm("确认这一项，再采集下一项")
             if mode_axis in used_axes:
                 prompt(
                     f"检测到 axis {mode_axis} 已经是 {used_axes[mode_axis]} 的轴；"
@@ -144,13 +192,15 @@ class JoystickSetupService:
                     values=list(MODE_VALUES),
                 )
             )
-            time.sleep(0.3)
+            time.sleep(0.2)
             break
         else:
             raise SetupError("mode: 连续 3 次检测到已占用轴；模式档位必须使用独立旋钮")
 
-        prompt("CH7 arm：按一下平时用于解锁/上锁的按钮")
+        prompt("arm：按一下平时用于解锁/上锁的按钮，保持约 0.2 秒")
         arm_button = detect_button(device, self.timeout)
+        prompt(f"已检测到 arm：button {arm_button}")
+        confirm("确认这一项，完成设置")
         buttons = [ButtonMap(button=arm_button, channel=7, toggle=True)]
 
         return BridgeConfig(
