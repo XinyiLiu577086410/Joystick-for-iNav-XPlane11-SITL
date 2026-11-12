@@ -410,17 +410,6 @@ def synthetic_channels(t: float) -> List[int]:
 # ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
-def _safe_handback(current: Sequence[int], candidate: Sequence[int]) -> bool:
-    """Only reclaim the gamepad when throttle, arm state and mode match."""
-    if abs(int(current[2]) - int(candidate[2])) > 75:
-        return False
-    if (current[6] >= PWM_MID) != (candidate[6] >= PWM_MID):
-        return False
-    if current[7] != candidate[7]:
-        return False
-    return True
-
-
 def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
     link = MspLink(cfg.host, cfg.port)
     if not link.connect():
@@ -550,27 +539,13 @@ def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
                     next_gamepad_probe = now + 2.0
                     candidate = try_gamepad()
                     if candidate is not None:
-                        try:
-                            cand_axes, cand_buttons = candidate.poll()
-                        except GamepadDisconnected:
-                            candidate.close()
-                        else:
-                            cand_channels = build_channels(cfg, cand_axes, cand_buttons, {}, {})
-                            if _safe_handback(channels, cand_channels):
-                                keyboard.close()
-                                keyboard = None
-                                gamepad = candidate
-                                toggles.clear()
-                                previous_buttons.clear()
-                                channels = cand_channels
-                                print("gamepad reconnected; RC control restored", flush=True)
-                            else:
-                                candidate.close()
-                                print(
-                                    "gamepad found but throttle/arm/mode unsafe; "
-                                    "staying on keyboard",
-                                    flush=True,
-                                )
+                        keyboard.close()
+                        keyboard = None
+                        gamepad = candidate
+                        toggles.clear()
+                        previous_buttons.clear()
+                        print("gamepad reconnected; RC control restored", flush=True)
+                        continue
             else:
                 # No keyboard fallback: stay alive, send nothing, let SITL fail safe.
                 if now >= next_gamepad_probe:

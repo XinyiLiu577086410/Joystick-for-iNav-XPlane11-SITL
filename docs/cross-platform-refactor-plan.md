@@ -470,7 +470,7 @@ flowchart TD
 
 | 模式 | 手柄存在 | 手柄掉线 | 手柄重连 |
 |---|---|---|---|
-| `auto` | 用手柄 | 键盘已配置 → 回退键盘；否则**暂停发 RC（bridge 不退出）** | 安全时自动收回手柄 |
+| `auto` | 用手柄 | 键盘已配置 → 回退键盘；否则**暂停发 RC（bridge 不退出）** | 自动收回手柄 |
 | `joystick` | 用手柄 | **暂停发 RC，bridge 保持运行**，SITL 进入 failsafe | **立即恢复发 RC** |
 | `keyboard` | 忽略 | 不受影响 | 忽略 |
 
@@ -512,16 +512,8 @@ sequenceDiagram
 **等待态（`input=joystick` 或 `auto` 无键盘）**：bridge 每 2 秒扫描手柄；一旦找到，直接把
 `gamepad` 设回输入源并恢复发帧。因为掉线期间一帧都没发，不存在“切回跳变”，无需安全条件。
 
-**键盘回退态（`auto` + 键盘已配置）**：每 2 秒尝试发现手柄；只有满足“安全收回”条件才切回：
-
-| 条件 | 原因 |
-|---|---|
-| 手柄的 ARM 状态 == 当前键盘 ARM 状态 | 防止切回瞬间上锁/解锁 |
-| 手柄油门与当前油门差 ≤ 75 PWM | 防止油门跳变 |
-| 手柄 CH8 模式 == 当前模式 | 防止切回瞬间切模式 |
-| `input == auto` | 强制模式不收回 |
-
-不满足就继续用键盘，并每隔一段时间重试；不会为了“切回手柄”制造姿态/油门跳变。
+**键盘回退态（`auto` + 键盘已配置）**：每 2 秒尝试发现手柄；一旦找到就**立即切回手柄**，
+不检查油门、ARM 或 CH8 模式。
 
 ```mermaid
 sequenceDiagram
@@ -532,15 +524,8 @@ sequenceDiagram
     Note over BR: 当前在键盘回退态（每 2 s 扫描）
     BR->>GP: discover()
     alt 找到手柄
-        BR->>GP: snapshot()
-        GP-->>BR: throttle / arm / mode
-        alt ARM、油门、模式都在安全范围
-            BR->>BR: 切回手柄
-            BR->>GP: 开始 poll()
-        else 不安全
-            BR->>BR: 保持键盘，提示原因
-            BR->>KB: 继续使用键盘
-        end
+        BR->>BR: 关闭键盘，切回手柄
+        BR->>GP: 开始 poll()
     else 未找到
         BR->>BR: 继续键盘
     end
@@ -563,7 +548,7 @@ stateDiagram-v2
     WaitingJoystick --> Joystick: 手柄重连（直接恢复发帧）
     WaitingJoystick --> Exited: bridge stop / fatal error
 
-    KeyboardFallback --> Joystick: 手柄重连 + 安全收回
+    KeyboardFallback --> Joystick: 手柄重连（立即收回）
     KeyboardFallback --> Exited: bridge stop / fatal error
 
     KeyboardForced --> Exited: bridge stop / fatal error
@@ -823,7 +808,7 @@ flowchart LR
 | core 单测 | MSP 编解码、通道映射、配置校验、启动检查、版本选择、输入源策略（auto/joystick/keyboard） |
 | 适配器 contract | spawn/stop/is_alive、端口、键盘 capture/is_down、X-Plane 定位 |
 | 集成 | 每平台启动 SITL + bridge，检查 5760–5763 |
-| 回归 | `auto` 掉线回退键盘、重连安全收回；`joystick` 掉线暂停发帧（bridge 不退出）并触发 failsafe、重连恢复；`keyboard` 忽略手柄；eeprom 版本不匹配；配置缺失；锁恢复 |
+| 回归 | `auto` 掉线回退键盘、重连立即收回；`joystick` 掉线暂停发帧（bridge 不退出）并触发 failsafe、重连恢复；`keyboard` 忽略手柄；eeprom 版本不匹配；配置缺失；锁恢复 |
 | 手工 | 真实 X-Plane 连接、OSD、六段模式、failsafe |
 
 CI 矩阵：

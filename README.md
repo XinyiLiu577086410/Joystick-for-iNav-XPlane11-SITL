@@ -317,7 +317,7 @@ hitl    installed v1.5.0  link: disconnected  (X-Plane plugin)
 - 键盘模式不控制 CH6 NAV WP，CH6 固定 1000；
 - 运行中手柄掉线：`source=auto` 且键盘已配置时自动切到键盘继续发 RC，
   并保留掉线前的油门/解锁/模式；`source=hid` 或键盘未配置时 **bridge 保持运行但停止发 RC**，
-  SITL 进入 failsafe；手柄重新连上后自动恢复发 RC；
+  SITL 进入 failsafe；手柄重新连上后**立即切回手柄/恢复发 RC**，不再检查油门/ARM/模式；
 - 启动时可用 `--input auto|joystick|keyboard` 强制输入源；`joystick` 模式下手柄掉线
   不会退出 bridge，只是暂停发帧，重连后恢复；
 - `Ctrl` 同时是“油门减少”和 `Ctrl+A` 解锁的修饰键：按 `Ctrl+A` 时油门会同时下降，
@@ -962,7 +962,7 @@ A：还没有生成本机配置。先跑 `.\hidctl.cmd setup joystick`（手柄�
 
 A：`source=auto` 且键盘已配置时，bridge 会自动切到键盘继续发 RC，并保留掉线前的
 油门/解锁/模式；`source=hid` 或键盘没配置时，bridge **不退出**，只是停止发 RC，
-SITL 进入 failsafe；手柄重新连上后自动恢复发帧。
+SITL 进入 failsafe；手柄重新连上后**立即切回手柄/恢复发帧**（不检查油门/ARM/模式）。
 
 **Q：Configurator 连不上 5760？**
 
