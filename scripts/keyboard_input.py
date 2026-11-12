@@ -545,10 +545,12 @@ class KeyboardInput:
             roll_target = PWM_MAX
 
         pitch_target = PWM_MID
+        # INAV commands nose-up with a *low* CH2 value (the same convention as
+        # the HID setup wizard), so "pitch up" must drive the channel down.
         if states.get("pitch_up") and not states.get("pitch_down"):
-            pitch_target = PWM_MAX
-        elif states.get("pitch_down") and not states.get("pitch_up"):
             pitch_target = PWM_MIN
+        elif states.get("pitch_down") and not states.get("pitch_up"):
+            pitch_target = PWM_MAX
 
         yaw_target = PWM_MID
         if states.get("yaw_left") and not states.get("yaw_right"):
