@@ -142,6 +142,8 @@ class SetupSaveTests(unittest.TestCase):
             )
             self.assertEqual([item.channel for item in config.axes], [1, 2, 4, 3, 8])
             self.assertEqual(config.axes[-1].kind, "multi")
+            pitch = next(item for item in config.axes if item.channel == 2)
+            self.assertTrue(pitch.reverse)  # up must command CH2 low / nose-up
             self.assertEqual([item.channel for item in config.buttons], [6, 7])
             self.assertEqual(len(confirmed), 15)
             service.save(config)

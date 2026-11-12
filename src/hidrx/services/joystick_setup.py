@@ -221,7 +221,7 @@ class JoystickSetupService:
 
         specs = (
             ("横滚 roll", 1, "bipolar", "左", "右", True),
-            ("俯仰 pitch", 2, "bipolar", "上仰方向", "下俯方向", False),
+            ("俯仰 pitch", 2, "bipolar", "上仰方向", "下俯方向", True),
             ("偏航 yaw", 4, "bipolar", "左", "右", True),
             ("油门 throttle", 3, "unipolar", "最低", "最高", True),
         )
