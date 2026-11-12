@@ -154,7 +154,7 @@ hidrx doctor
 
 ## 8. 从旧分支迁移
 
-> 旧 `hidctl.py` 和 `scripts/hid2msp.py` 已从 `cross-platform` 分支移除；下表只用于从旧分支迁移。
+> 旧 `hidctl.py`、`hidctl.cmd`、`scripts/` 及旧 macOS 文档已从 `cross-platform` 分支移除；下表只用于从旧分支迁移。
 
 旧 `hidctl` 命令对应关系：
 
