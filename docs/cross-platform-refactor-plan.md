@@ -911,7 +911,8 @@ Linux 需要 `xvfb-run` 才能测 X11 键盘/前台窗口；Wayland 只测降级
 ## 16. 实施进度
 
 - **Phase 0：完成** — `cross-platform` 分支已创建。
-- **Phase 1：完成** — `src/hidrx/core/` 已抽出 MSP、通道映射、配置、启动门禁；16 个 unittest 通过。
+- **Phase 1：完成** — `src/hidrx/core/` 已抽出 MSP、通道映射、配置、启动门禁；当前 20 个 unittest 通过。
 - **Phase 2：完成（骨架）** — `platform/base.py` 接口、`platform/fake.py` 内存实现、`tests/test_fake_platform.py` 已就位。
-- **Phase 3+：待做** — Windows/macOS/Linux 适配器、services、CLI 合并、INAV 版本管理。
+- **Phase 3：进行中** — Windows `paths.py`、`processes.py`（Win32 spawn/stop/identity/tasklist/netstat）及 `tests/test_windows_adapter.py` 已完成；键盘、X-Plane、INAV 定位待接。
+- **Phase 4+：待做** — macOS/Linux 适配器、services、CLI 合并、INAV 版本管理、CI。
 
