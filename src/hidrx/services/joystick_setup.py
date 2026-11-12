@@ -145,7 +145,7 @@ class JoystickSetupService:
     ) -> BridgeConfig:
         specs = (
             ("横滚 roll", 1, "bipolar", "左", "右", True),
-            ("俯仰 pitch", 2, "bipolar", "上", "下", False),
+            ("俯仰 pitch", 2, "bipolar", "上仰方向", "下", False),
             ("偏航 yaw", 4, "bipolar", "左", "右", True),
             ("油门 throttle", 3, "unipolar", "最低", "最高", True),
         )
