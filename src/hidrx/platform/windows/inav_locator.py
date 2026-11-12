@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, List, Optional
@@ -65,14 +66,16 @@ class WindowsInavLocator:
 
     def _probe(self, exe: Path) -> Optional[InavInstall]:
         try:
-            proc = subprocess.run(
-                [str(exe), "-v"],
-                capture_output=True,
-                text=True,
-                errors="replace",
-                timeout=self.timeout,
-                creationflags=CREATE_NO_WINDOW,
-            )
+            with tempfile.TemporaryDirectory() as workdir:
+                proc = subprocess.run(
+                    [str(exe), "-v"],
+                    capture_output=True,
+                    text=True,
+                    errors="replace",
+                    timeout=self.timeout,
+                    cwd=workdir,
+                    creationflags=CREATE_NO_WINDOW,
+                )
         except (OSError, subprocess.TimeoutExpired):
             return None
         text = (proc.stdout or "") + "\n" + (proc.stderr or "")

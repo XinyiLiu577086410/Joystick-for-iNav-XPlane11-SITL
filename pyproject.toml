@@ -13,5 +13,8 @@ dependencies = []
 [project.optional-dependencies]
 joystick = ["pygame>=2.0"]
 
+[project.scripts]
+hidrx = "hidrx.apps.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
