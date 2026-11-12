@@ -923,6 +923,7 @@ Linux 需要 `xvfb-run` 才能测 X11 键盘/前台窗口；Wayland 只测降级
 - **CLI 配置加载：完成（代码）** — `services/cli.py` 通过 5760 进入 CLI、逐条发送、可选 `save`；CLI `config load` 支持 `--file/--port/--no-save/--inav-version/--inav-path`。
 - **Phase 6：部分完成** — `services/inav.py` 支持 `--inav-path` / `--inav-version` / 环境变量 / active / 自动最高版本，按版本隔离 eeprom/meta/CLI 配置，版本不匹配拒绝。
 - **Phase 7：部分完成** — `apps/cli.py` 已提供 `inav list/use/check`、`config check/load`、`setup keyboard/joystick`、`start/stop/restart/logs/status/doctor`、`backup/backups/restore/reset`、`--input` 与版本参数。
+- **文档：完成（初稿）** — 根 `README.md` 已改为三平台用法，包含首次 setup、INAV 版本、输入模式、eeprom、doctor、旧 `hidctl` 迁移表和当前限制。
 - **Phase 8：进行中** — `.github/workflows/cross-platform.yml` 已加入 Windows/macOS/Linux 矩阵；尚未在 GitHub 上跑过。
 - **Phase 4+：进行中** — 新 bridge 运行时已接入；完整 CLI 兼容、CI 实跑、真实三平台验证待做。
 
