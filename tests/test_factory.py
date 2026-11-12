@@ -23,6 +23,13 @@ class FactoryTests(unittest.TestCase):
             self.assertEqual(platform.id, "windows")
             self.assertEqual(platform.paths.repo_root, Path(tmp))
 
+    @unittest.skipUnless(sys.platform in ("darwin", "linux"), "POSIX implementation only")
+    def test_create_posix_platform(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            platform = create_platform(Path(tmp))
+            self.assertIn(platform.id, ("macos", "linux"))
+            self.assertEqual(platform.paths.repo_root, Path(tmp))
+
 
 if __name__ == "__main__":
     unittest.main()
