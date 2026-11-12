@@ -19,6 +19,8 @@
 | **INAV Configurator** | 通过 TCP 5760 配置 SITL | 外部 |
 | **INAV-X-Plane-HITL 插件** | X-Plane 里的飞机插件：传感器 + 控制 + OSD | X-Plane 加载 |
 
+### 1.1 组件协作关系
+
 四个 TCP 端口全在本机，每个 UART 同时只允许一个客户端：
 
 | 端口 | UART | 客户端 | 协议 |
@@ -28,33 +30,111 @@
 | 5762 | UART3 | `hid2msp.py` | `MSP_SET_RAW_RC` |
 | 5763 | UART4 | 无（SITL 自用） | MSP DisplayPort / HD OSD |
 
+```text
+X-Plane 11 ── HITL 插件 ── 5761 ── SITL UART2
+     ▲                            │
+     │ 控制量/OSD                  │ 5762 ── hid2msp.py ── 手柄/键盘
+     └────────────────────────────┘
+Configurator ── 5760 ── SITL UART1（配置/CLI）
+SITL UART4 ── 5763（MSP DisplayPort 画布，插件通过 5761 读取）
+```
+
+关键点：
+
+- 手柄不是 X-Plane 的摇杆，而是通过 `hid2msp.py` 变成 INAV 的 **MSP 接收机**；
+- 插件把 SITL 的 roll/pitch/yaw/throttle 写进 X-Plane，再把 X-Plane 的姿态/传感器回传给 SITL；
+- OSD 由插件绘制；SITL 用 UART4 维护 OSD 画布，插件通过 5761 的 `MSP_SIMULATOR` 读取；
+- Configurator、插件、手柄桥各占一个 UART，不能共用。
+
+### 1.2 运行时序
+
+正常飞行时，50 Hz 循环：
+
+1. `hid2msp.py` 读取手柄轴/按键，或读取键盘（仅 X-Plane 前台时）；
+2. 通过 5762 发 `MSP_SET_RAW_RC`（CH1–CH9）；
+3. SITL 做接收机解析、混控、PID、导航；
+4. SITL 通过 5761 回 `MSP_SIMULATOR`（控制量、OSD、状态位）；
+5. HITL 插件把控制量写进 X-Plane，并绘制 OSD；
+6. X-Plane 把姿态/传感器数据回传插件，插件再通过 5761 回给 SITL。
+
+启动顺序是：`hidctl start sitl` → 等 5760–5763 监听 → `hidctl start bridge` → 你在 X-Plane 里连 5761、Configurator 连 5760。
+
 ---
 
-## 2. 依赖
+## 2. 安装与依赖
 
 | 组件 | 要求 | 检查 |
 |---|---|---|
 | Windows | 10 / 11，64 位 | — |
-| Python | 3.10+ | `python --version` |
-| INAV Configurator | 9.x（自带 `inav_SITL.exe`） | `hidctl.cmd doctor` |
+| Python | 3.10+（本机 3.12） | `python --version` |
+| INAV Configurator | **10.0.0**（自带 INAV 10 SITL） | `hidctl.cmd doctor` |
 | X-Plane | 11.55+ 或 12 | `hidctl.cmd doctor` |
 | HITL 插件 | v1.5.0（已装到 `NK_FPVSurfwing`） | `hidctl.cmd status` |
 | pygame | 仅手柄模式需要 | `python -m pip install pygame` |
 
-键盘模式**不需要** pygame，也不需要任何额外权限；Windows 用
-`GetAsyncKeyState` 全局读键，不需要窗口焦点。
+不需要真实飞控、真实接收机，也不需要自己编译 SITL 或插件。
 
-### 2.1 安装 HITL 插件（如果还没装）
+键盘模式不需要 pygame，也不需要管理员权限；但默认**只在 X-Plane 是前台窗口时生效**，切到其他软件会自动暂停，避免误触。
 
-```powershell
-git clone https://github.com/RomanLut/INAV-X-Plane-HITL.git 3rdparty\INAV-X-Plane-HITL
-Copy-Item "3rdparty\INAV-X-Plane-HITL\release\Aircraft\Extra Aircraft\NK_FPVSurfwing" `
-          "C:\Program Files (x86)\Steam\steamapps\common\X-Plane 11\Aircraft\Extra Aircraft\" -Recurse
+### 2.1 X-Plane 11 / 12
+
+1. 安装/确认 **X-Plane 11.55r2**（Steam 或独立版均可；X-Plane 12 也可，但插件要用对应版本）。
+2. 找到 X-Plane 根目录，Steam 版通常是：
+
+   ```text
+   C:\Program Files (x86)\Steam\steamapps\common\X-Plane 11
+   ```
+
+3. 复制 INAV Surfwing 和 HITL 插件：
+
+   ```powershell
+   $XP = "C:\Program Files (x86)\Steam\steamapps\common\X-Plane 11"
+   Copy-Item "3rdparty\INAV-X-Plane-HITL\release\Aircraft\Extra Aircraft\NK_FPVSurfwing" `
+             "$XP\Aircraft\Extra Aircraft\" -Recurse
+   ```
+
+   插件本体在机型的 `plugins\INAV-X-Plane-HITL\64\win.xpl`，随机型一起复制即可。
+
+4. 启动 X-Plane，设置 `Settings → General → Flight models per frame = 10`。
+5. `New Flight → Select Aircraft`，勾选底部的 **`Show extra aircraft from old versions`**，
+   选择 `Extra Aircraft → INAV Surfwing`。
+6. 进入飞行后：`Plugins → INAV HITL/SITL → Link → Connect to SITL → 127.0.0.1:5761`。
+
+### 2.2 INAV Configurator 10.0.0
+
+安装 **INAV Configurator 10.0.0**，它自带 Windows SITL：
+
+```text
+C:\Program Files (x86)\INAV-Configurator_Win64_10.0.0\app-10.0.0\resources\sitl\windows\inav_SITL.exe
 ```
 
-Steam 装在别处时，把目标路径换成实际的 `X-Plane 11` 目录。
+确认版本：
 
-### 2.2 pygame
+```powershell
+& "C:\Program Files (x86)\INAV-Configurator_Win64_10.0.0\app-10.0.0\resources\sitl\windows\inav_SITL.exe" -v
+```
+
+`hidctl` 会自动探测 `Program Files`、`Program Files (x86)`、`%LOCALAPPDATA%\Programs`
+下的 `INAV*` 目录；也可以用 `HIDCTL_SITL` 直接指定 exe：
+
+```powershell
+$env:HIDCTL_SITL = "D:\INAV\...\inav_SITL.exe"
+```
+
+> 本机还装有 Configurator 8.0.1（SITL 8.0.1）。HITL 插件 v1.5.0 官方面向 INAV 7/8；
+> 如果 INAV 10 联调遇到协议问题，可以临时切到 8.0.1 做对照，但 eeprom 要按对应版本重建。
+> 不要混用不同版本的 `plane.bin`。
+
+### 2.3 Python
+
+```powershell
+python --version
+python -m pip install --upgrade pip
+```
+
+`hid2msp.py` 只依赖标准库；只有手柄模式需要 pygame。
+
+### 2.4 pygame
 
 ```powershell
 python -m pip install pygame
@@ -69,6 +149,19 @@ python -m pip download pygame --no-deps -d .
 ```
 
 `.deps\` 已被 `.gitignore` 排除。
+
+### 2.5 HID 手柄/遥控器（可选）
+
+没有手柄时可以直接用键盘（见 4.3）。手柄可以是 USB 模拟器适配器，也可以是把遥控器当 USB HID 的设备。
+
+先确认编号：
+
+```powershell
+python scripts\hid2msp.py --list
+```
+
+会打印设备名、轴数/按键数，并实时显示 `axes=[...] buttons=[...]`。轴编号因 SDL/Windows 而异，
+换手柄或换机器后建议跑一次 `.\hidctl.cmd setup`。
 
 ---
 
@@ -128,7 +221,7 @@ PID 写到 `run\sitl.pid`、`run\bridge.pid`。
 ### 3.2 status 示例
 
 ```text
-sitl    running  pid 5752  ports 5760,5761
+sitl    running  pid 5752  ports 5760,5761,5762,5763
 bridge  running  pid 21376  target 127.0.0.1:5762  connected
 eeprom  .\config\runtime\plane.bin  (32768 bytes, 2026-11-10 15:18:44)
 config  .\config\hid2msp_inav.json
@@ -145,21 +238,23 @@ hitl    installed v1.5.0  link: disconnected  (X-Plane plugin)
 
 ## 4. 通道定义
 
+### 4.1 通道表
+
 当前配置见 [config/hid2msp_inav.json](config/hid2msp_inav.json)：
 
 | 通道 | 功能 | 来源 |
 |---|---|---|
-| CH1 | Roll | 手柄 axis 5 |
+| CH1 | Roll | 手柄 axis 4 |
 | CH2 | Pitch | axis 0 |
 | CH3 | Throttle | axis 1 |
-| CH4 | Yaw | axis 4 |
-| CH5 | 旋钮三档原始指示 | axis 3，`tri` |
+| CH4 | Yaw | axis 3 |
+| CH5 | 旋钮三档原始指示 | axis 5，`tri` |
 | CH6 | SWC → NAV WP | button 3，高=开 |
 | CH7 | SWB → ARM | button 2，高=解锁 |
-| CH8 | 六段模式 | axis 3，`multi` 6 档 |
+| CH8 | 六段模式 | axis 5，`multi` 6 档 |
 | CH9 | NAV LAUNCH | 常量 2000 |
 
-六段模式：
+### 4.2 六段模式
 
 | 旋钮 | CH8 | 模式 |
 |---|---|---|
@@ -173,20 +268,33 @@ hitl    installed v1.5.0  link: disconnected  (X-Plane plugin)
 > CH9 常高意味着 NAV LAUNCH 永久启用，SITL 里解锁即进入起飞模式。
 > 仅用于仿真，**不要照搬到真机**。
 
-### 4.1 键盘控制（无手柄时自动启用）
+### 4.3 键盘控制（无手柄时自动启用）
 
 键盘输入只在 **X-Plane 是当前最上层窗口** 时生效；切到浏览器、终端或其他软件时，
 按键会被忽略，摇杆自动回中、油门保持、解锁状态不变，不会误触。
 
+当前配置的键位：
+
 | 键 | 功能 |
 |---|---|
-| `W` / `S` | Pitch 上 / 下 |
-| `A` / `D` | Roll 左 / 右 |
-| `Q` / `E` | Yaw 左 / 右 |
+| `←` / `→` | Roll 左 / 右 |
+| `↓` / `↑` | Pitch 上 / 下（当前配置把方向键对调了） |
+| `Page Up` / `Page Down` | Yaw 左 / 右 |
 | `1`–`6` | 六段模式：ANGLE / HORIZON / MANUAL / CRUISE / POSHOLD / RTH |
-| `Space` | 按一下切换解锁/上锁 |
-| `Left Shift` | 按住增加油门 |
-| `Left Control` | 按住减少油门 |
+| `Ctrl+A` | 按一下切换解锁/上锁 |
+| `Shift` | 按住增加油门 |
+| `Ctrl` | 按住减少油门 |
+
+行为：
+
+- 初始油门 1000、CH7 上锁、CH8 为 ANGLE；
+- 油门 > 1050 时拒绝解锁，并提示先降低油门；
+- `1`–`6` 是按下沿触发，不是按住；
+- 轴和油门按 `axis_rate` / `throttle_rate` 平滑变化，不会瞬间满舵；
+- 键盘模式不控制 CH6 NAV WP，CH6 固定 1000；
+- `Ctrl` 同时是“油门减少”和 `Ctrl+A` 解锁的修饰键：按 `Ctrl+A` 时油门会同时下降，
+  对解锁反而安全，但飞行中不要误按 `Ctrl`；
+- 默认只有 X-Plane 前台才响应，避免在浏览器/终端里误触。
 
 每个键都可以改成 **组合键**，例如解锁用 `ctrl+shift+space`：
 
@@ -231,7 +339,56 @@ python scripts\hid2msp.py --keys     # 不接 SITL，直接看键盘通道
 
 注意：`--keys` 监视模式同样遵守 `foreground_only`，调试时要把 X-Plane 切到前台。
 
-### 4.2 设置向导（重新标定轴和方向）
+### 4.4 `hid2msp_inav.json` 字段
+
+```json
+{
+  "host": "127.0.0.1",
+  "port": 5762,
+  "rate_hz": 50,
+  "axes": [
+    {"axis": 5, "channel": 1, "kind": "bipolar", "trim": 1500, "reverse": false},
+    {"axis": 3, "channel": 8, "kind": "multi", "levels": 6,
+     "values": [1000, 1200, 1400, 1600, 1800, 2000]}
+  ],
+  "buttons": [
+    {"button": 2, "channel": 7, "low": 1000, "high": 2000, "toggle": false}
+  ],
+  "constants": {"9": 2000},
+  "keyboard": {
+    "enabled": true,
+    "source": "auto",
+    "foreground_only": true,
+    "window_process": "X-Plane.exe"
+  }
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `host` / `port` | SITL 的 RC UART，默认 `127.0.0.1:5762` |
+| `rate_hz` | RC 帧率，默认 50 Hz |
+| `axes[].axis` | pygame/SDL 轴编号，用 `--list` 或 `hidctl setup` 确认 |
+| `axes[].channel` | 目标 RC 通道（1–16） |
+| `axes[].kind` | `bipolar`（双向）、`unipolar`（单向）、`tri`（三档）、`binary`（二值）、`multi`（多档） |
+| `axes[].trim` | 中位/低端 PWM |
+| `axes[].reverse` | 反向 |
+| `axes[].deadband` / `expo` | 死区/曲线 |
+| `axes[].threshold` | `tri`/`binary` 的切换阈值 |
+| `axes[].levels` / `values` | `multi` 的档位数和每档 PWM |
+| `buttons[].button` / `channel` | 按键编号 / 目标通道 |
+| `buttons[].low` / `high` | 松开/按下（或开关低/高）的 PWM |
+| `buttons[].toggle` | `true` 按一下切换，`false` 跟随开关状态 |
+| `constants` | 固定通道值，CH9=2000 即 NAV LAUNCH |
+| `keyboard.enabled` / `source` | 是否启用键盘；`auto` / `hid` / `keyboard` |
+| `keyboard.foreground_only` | 只在前台进程匹配时响应，默认 `true` |
+| `keyboard.window_process` | 前台进程名，默认 `X-Plane.exe` |
+| `keyboard.axis_rate` / `throttle_rate` | 轴/油门变化速率（PWM/秒） |
+| `keyboard.keys` | 动作 → 键名；支持 `ctrl+shift+space` 这类组合 |
+
+`channel_map` 和 `mode_table` 只是给人看的文档字段，程序会忽略。
+
+### 4.5 HID 设置向导（重新标定轴和方向）
 
 同一只手柄在 macOS 和 Windows 上 SDL 的轴编号可能不同，换机器或换手柄后建议跑一次：
 
@@ -336,9 +493,228 @@ SITL 启动时**只读** `config\runtime\plane.bin`（eeprom）。
 `restore` 会先停组件、默认再备份当前 eeprom，然后覆盖并启动；
 `reset` 删除 eeprom，让 SITL 生成全新默认配置（只启动 SITL）。
 
+### 5.4 UART 与 aux（关键 CLI 字段）
+
+CLI 的 `serial` id 从 **0** 开始，对应关系不能写错：
+
+```text
+serial 0 = UART1 = 5760 Configurator
+serial 1 = UART2 = 5761 HITL 插件
+serial 2 = UART3 = 5762 手柄桥
+serial 3 = UART4 = 5763 MSP DisplayPort
+```
+
+源配置里的核心设置：
+
+```text
+set receiver_type = MSP
+set gps_provider = FAKE
+set acc_hardware = FAKE
+set baro_hardware = FAKE
+set mag_hardware = FAKE
+set pitot_hardware = FAKE
+set rssi_source = NONE
+set osd_video_system = AVATAR
+
+aux 0 0 2 1950 2050   # CH7 SWB -> ARM
+aux 1 1 3 950 1050    # CH8 1000 -> ANGLE
+aux 2 2 3 1150 1250   # CH8 1200 -> HORIZON
+aux 3 12 3 1350 1450  # CH8 1400 -> MANUAL
+aux 4 53 3 1550 1650  # CH8 1600 -> NAV CRUISE
+aux 5 11 3 1750 1850  # CH8 1800 -> NAV POSHOLD
+aux 6 10 3 1950 2050  # CH8 2000 -> NAV RTH
+aux 7 36 4 1950 2050  # CH9 2000 -> NAV LAUNCH
+aux 8 28 1 1950 2050  # CH6 SWC -> NAV WP
+```
+
+`aux` 的第 3 个参数是 **0 基通道号**：`2` = CH7、`3` = CH8、`4` = CH9、`1` = CH6。
+模式编号是 INAV 的 permanent ID：
+
+| ID | 模式 | ID | 模式 |
+|---|---|---|---|
+| 0 | ARM | 1 | ANGLE |
+| 2 | HORIZON | 12 | MANUAL |
+| 53 | NAV CRUISE | 11 | NAV POSHOLD |
+| 10 | NAV RTH | 36 | NAV LAUNCH |
+| 28 | NAV WP | | |
+
+### 5.5 eeprom 与源文件的关系
+
+```text
+config\INAV_SITL_MINIMAL_NODEFAULTS.txt   人可读的 CLI 源文件
+        │  只在 Configurator CLI 或 hidctl config load 时手动加载
+        ▼
+config\runtime\plane.bin                  32 KB 飞控 eeprom
+        │  SITL 每次启动用 --path 读取
+        ▼
+INAV SITL 运行时配置
+```
+
+- 改 `.txt` **不会**自动影响正在运行的 SITL；必须 `config load` 或手动加载并 `save`；
+- `hidctl` 只把 `plane.bin` 传给 SITL，不读 `.txt`；
+- `plane.bin` 不存在时 SITL 会生成默认配置，需要加载一次；
+- 不要直接编辑 `plane.bin`（二进制），用 Configurator/CLI 修改后 `save`；
+- 要让仓库可复现，改完后在 CLI 执行 `diff all`，把输出更新到
+  `config\INAV_SITL_MINIMAL_NODEFAULTS.txt` 并提交。
+
 ---
 
-## 6. 排错
+## 6. 目录、文件与配置分类
+
+```text
+Joystick-for-iNav-XPlane11-SITL\
+├─ hidctl.cmd / hidctl.py       统一入口：启停、状态、日志、备份、恢复、配置加载
+├─ scripts\                     桥、键盘、标定、日志泵、MSP 调试工具
+├─ config\
+│  ├─ hid2msp_inav.json         当前 HID/键盘映射（实际使用）
+│  ├─ hid2msp.example.json      通用 Xbox 风格示例（仅参考）
+│  ├─ INAV_SITL_MINIMAL_NODEFAULTS.txt  SITL CLI 源配置
+│  ├─ calibration.json          可选标定结果（忽略）
+│  └─ runtime\
+│     ├─ plane.bin              SITL 每次启动读取的 eeprom
+│     └─ backups\               eeprom 备份（忽略）
+├─ run\                         PID、hidctl.lock（忽略）
+├─ logs\                        sitl/bridge/hidctl/observe/capture（忽略）
+├─ 3rdparty\                    INAV/HITL 源码参考（不参与运行，忽略）
+└─ docs\                        历史文档与图
+```
+
+| 分类 | 文件 | 谁读取 | 作用 |
+|---|---|---|---|
+| SITL 运行时配置 | `config\runtime\plane.bin` | SITL 每次启动 | 真正的飞控 eeprom |
+| SITL 源配置 | `config\INAV_SITL_MINIMAL_NODEFAULTS.txt` | 人/Configurator CLI | 可读写的 CLI 源文件，加载后生效 |
+| HID 映射 | `config\hid2msp_inav.json` | `hid2msp.py` | 轴/按键/键盘 → CH1–CH9 |
+| 标定结果 | `config\calibration.json` | 人/`calibrate_hid.py` | 可选，忽略 |
+| 运行状态 | `run\*.pid`、`run\hidctl.lock` | `hidctl` | 进程管理与互斥 |
+| 日志 | `logs\` | 人 | 排错、MSP 抓包、观察记录 |
+
+> `config\runtime\`、`run\`、`logs\` 都是运行时目录，已被 `.gitignore` 排除。
+> 不要直接编辑 `plane.bin`。
+
+---
+
+## 7. 用 Configurator 配置 SITL
+
+Configurator 连接 **TCP `127.0.0.1:5760`**。
+
+### 7.1 Receiver
+
+- Receiver type：**MSP**
+- 不要选 `SIM (SITL)`（那是 X-Plane 原生摇杆，不走 `hid2msp.py`）
+- 不要选 `SERIAL`，除非你接真实串口接收机
+
+### 7.2 Ports
+
+| UART | 功能 | TCP 端口 |
+|---|---|---|
+| UART1 | MSP | 5760 |
+| UART2 | MSP | 5761 |
+| UART3 | MSP | 5762 |
+| UART4 | MSP DisplayPort | 5763 |
+
+CLI 的 `serial` id 从 0 开始：`serial 0`=UART1、`serial 1`=UART2、`serial 2`=UART3、`serial 3`=UART4。
+
+### 7.3 Mixer
+
+- Platform：**AIRPLANE**
+- 当前配置保留双发固定翼 mixer（`model_preview_type = 26`）
+- HITL 插件只使用 roll/pitch/yaw/throttle 四个控制量，不逐个读取舵机输出
+- 不要在 SITL 里选 Flying Wing 再期待 X-Plane 看到左右 elevon
+
+### 7.4 Sensors
+
+| 项目 | 设置 |
+|---|---|
+| Accelerometer / Barometer / Magnetometer / Pitot | `FAKE` |
+| Rangefinder / Optical flow | `NONE` |
+| GPS | `FAKE` |
+
+`ins_gravity_cmss` 等真机校准值 SITL 不需要，精简配置里已移除。
+
+### 7.5 OSD
+
+- Configuration → Other features：勾选 `OSD`
+- OSD → Video system：`AVATAR`（也支持 `HDZERO`、`DJIWTF`、`BF43COMPAT`）
+- Ports → UART4：`MSP DisplayPort`
+
+SITL 没有模拟 MAX7456，必须走 **MSP DisplayPort + HD OSD**，否则插件会提示
+`SUPPORTED OSD TYPE NOT FOUND`。UART4 不直接给 X-Plane 送画面，插件通过 5761 读取 OSD 内容并绘制。
+
+**Glide Range / Glide Time 必须保持隐藏**，否则 INAV 10 会 SIGFPE（见 9.5）。
+
+### 7.6 Modes
+
+| 通道 | 作用 |
+|---|---|
+| CH6 | SWC → NAV WP（高=开） |
+| CH7 | SWB → ARM（高=解锁） |
+| CH8 | 旋钮六段模式 |
+| CH9 | 常高 → NAV LAUNCH |
+
+AUX 表丢失时，重新加载 `config\INAV_SITL_MINIMAL_NODEFAULTS.txt`。
+
+### 7.7 加载 CLI 配置
+
+1. Configurator 连 `127.0.0.1:5760`；
+2. 打开 CLI；
+3. 粘贴 `config\INAV_SITL_MINIMAL_NODEFAULTS.txt` 的全部内容；
+4. 执行 `save`；
+5. SITL 重启后重新连接 Configurator，插件重新 `Connect to SITL`。
+
+或者直接用：
+
+```powershell
+.\hidctl.cmd config load
+```
+
+从非全新 eeprom 恢复时，先 `.\hidctl.cmd backup eeprom`；遇到 SITL 崩溃时，
+删除/替换 eeprom 让 SITL 生成全新配置，再加载 CLI。
+
+### 7.8 保存流程（RAM → eeprom → Git）
+
+| 层次 | 操作 | 结果 |
+|---|---|---|
+| RAM | 在 Configurator 里改参数 | 只对当前 SITL 有效，重启丢失 |
+| eeprom | 点 Save，或 CLI `save` | 写入 `plane.bin`，下次启动继续使用 |
+| Git | `diff all` → 更新 `.txt` → commit | 仓库可复现，不会自动发生 |
+
+保存后 SITL 会重启，5760–5763 短暂断开再恢复；bridge 会自动重连，插件需要重新 Connect。
+确认参数无误后再备份一份：
+
+```powershell
+.\hidctl.cmd backup eeprom --name after-fc-change
+```
+
+---
+
+## 8. 操作流程
+
+### 8.1 解锁
+
+1. 油门最低；
+2. 左右摇杆回中；
+3. SWB 拨到高位；
+4. Configurator 的 Receiver 页确认 **CH7 = 2000**；
+5. 解锁。
+
+如果 SWB 高位时 CH7 还是 1000，检查 JSON 里的 `low`/`high` 是否对调。
+键盘模式用 `Ctrl+A` 切换解锁，油门 > 1050 会拒绝。
+
+### 8.2 模式选择
+
+- 旋钮：CH8 六档（ANGLE / HORIZON / MANUAL / CRUISE / POSHOLD / RTH）；
+- SWC 高：叠加 NAV WP；
+- CH9 常高：NAV LAUNCH 永久启用。
+
+### 8.3 失控保护
+
+- INAV `failsafe_procedure = RTH`；
+- `hid2msp.py` 停止/崩溃后，SITL 约 200 ms 收不到 RC 帧，进入 failsafe；
+- 地面测试：解锁前先停掉 bridge，观察 Configurator/OSD 是否进入 FS；测试完再启动 bridge。
+
+---
+
+## 9. 排错
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
@@ -352,12 +728,12 @@ SITL 启动时**只读** `config\runtime\plane.bin`（eeprom）。
 | HITL 菜单不出现 | 没加载 INAV Surfwing（插件是 Aircraft 插件） | 加载该机型；勾选 `Show extra aircraft from old versions` |
 | `unable to arm no rc link` | bridge 没运行或没连上 5762 | `.\hidctl.cmd status`；`.\hidctl.cmd start bridge` |
 | `SUPPORTED OSD TYPE NOT FOUND` | 没有 MSP DisplayPort / HD OSD | UART4 设 `MSP DisplayPort`，OSD video `AVATAR` |
-| SITL 版本不匹配 | 本机是 9.1.0，项目原配置来自 9.0.0 | 用 9.1.0 重新生成 eeprom 并加载 CLI；必要时装 Configurator 9.0.0 |
+| SITL 版本不匹配 | eeprom 与当前 SITL 版本不一致 | 用当前版本重新生成 eeprom 并加载 CLI；必要时切回对应 Configurator |
 
 `doctor` 会逐项检查：SITL 二进制、X-Plane、HITL 插件、Python、桥脚本、
 pygame/手柄、键盘、HID 配置、eeprom、四个端口。
 
-### 6.1 SITL 在 Windows 上“莫名其妙死掉”
+### 9.1 SITL 在 Windows 上“莫名其妙死掉”
 
 `inav_SITL.exe` 是控制台程序。如果它附着在启动它的终端/控制台上，**关闭那个窗口**
 时 Windows 会给它发 `CTRL_CLOSE_EVENT`，Cygwin 转成 SIGHUP，进程以
@@ -380,7 +756,7 @@ macOS 分支用 `start_new_session=True`（setsid）脱离终端；Windows 分�
 如果以后还看到 SITL 消失，先看 `logs\sitl.log` 有没有 `stop sitl` 头：
 有就是 hidctl 停的，没有就是外部原因（控制台关闭、被任务管理器结束、崩溃）。
 
-### 6.2 多终端与重复进程
+### 9.2 多终端与重复进程
 
 `run\*.pid`、`logs\` 都在仓库目录里，同一份仓库的多个终端共享：
 
@@ -405,7 +781,7 @@ PID 文件现在记录 **PID + 进程创建时间**（`run\sitl.pid` 两行）�
 
 清理 `stray` 进程：在任务管理器里结束，或 `taskkill /PID <pid> /T /F`。
 
-### 6.3 日志格式
+### 9.3 日志格式
 
 所有组件日志现在**逐行带时间戳**，由 [scripts/logpump.py](scripts/logpump.py) 管道写入：
 
@@ -431,7 +807,7 @@ PID 文件现在记录 **PID + 进程创建时间**（`run\sitl.pid` 两行）�
 .\hidctl.cmd logs all -f
 ```
 
-### 6.4 MSP 调试工具
+### 9.4 MSP 调试工具
 
 **1. 读飞控状态（不开 Configurator）**
 
@@ -466,7 +842,7 @@ MSP 帧数；日志里能看到 `MSP_SET_RAW_RC` 的通道值、`MSP_SIMULATOR` 
 > 为什么不用 `pktmon`：它需要管理员权限，而且 **抓不到 127.0.0.1 回环流量**
 > （NDIS 层看不到 loopback），所以这里用用户态 tap。`scripts\msp_tap.py` 也可以单独运行。
 
-### 6.5 已知问题：Glide Range / Glide Time 导致 SITL 退出（INAV 10）
+### 9.5 已知问题：Glide Range / Glide Time 导致 SITL 退出（INAV 10）
 
 **现象**：解锁后，或飞行中打开 Glide Range，SITL 无声退出，`logs\sitl.log` 里是：
 
@@ -515,7 +891,65 @@ Configurator 的 OSD 页面取消勾选 **Glide Range** / **Glide Time Remaining
 
 ---
 
-## 7. 与 main（macOS）分支的差异
+## 10. 安全与限制
+
+- 这是**仿真环境**，但 `NAV LAUNCH` 永久启用（CH9 常高），SITL 里解锁就会进入起飞模式；
+  解锁前确认模型/桨叶周围无人。
+- `config\INAV_SITL_MINIMAL_NODEFAULTS.txt` 只是 SITL 配置，**不要刷入真实飞机**。
+- HITL 插件只支持固定翼，只回传 roll/pitch/yaw/throttle 四个控制量；
+  INAV 的每个舵机混控不会逐个出现在 X-Plane，Flying Wing/elevon 不要指望在 X-Plane 里看到。
+- SITL 没有模拟 MAX7456，OSD 必须走 MSP DisplayPort + HD OSD。
+- HITL 插件 v1.5.0 主要面向 INAV 7/8；INAV 10 联调可能有协议差异。
+  当前已知 INAV 10 的 Glide Range/Glide Time 会 SIGFPE，必须保持隐藏（见 9.5）。
+- 键盘默认只在 X-Plane 前台时生效；这不是安全认证，只是避免误触。
+- 配置里的 PID、OSD、导航参数是仿真调参，未经真机验证；真机使用前必须重新检查
+  传感器校准、failsafe、arm 开关方向、模式优先级、电机/舵机方向。
+
+---
+
+## 11. FAQ
+
+**Q：为什么键盘在浏览器里没反应？**
+
+A：默认 `foreground_only = true`，只有 X-Plane 前台才响应。想全局响应就设
+`"foreground_only": false`，但不推荐。
+
+**Q：怎么把解锁设成组合键？**
+
+A：`.\hidctl.cmd setup keyboard`，在 `Arm / disarm` 步骤按住 `Ctrl+Shift` 再按 `Space`，
+得到 `ctrl+shift+space`；也可以直接改 `keyboard.keys.arm`。
+
+**Q：手柄和键盘谁优先？**
+
+A：`keyboard.source`：`auto` 有手柄用手柄，否则键盘；`hid` 强制手柄；`keyboard` 强制键盘。
+
+**Q：Configurator 连不上 5760？**
+
+A：每个 UART 只允许一个客户端。先断开其他 Configurator/CLI 会话；
+`hidctl config load` 也会占用 5760，用完会释放。
+
+**Q：SITL 为什么无声退出？**
+
+A：先看 `logs\sitl.log` 的退出码。`0x800` 是 SIGFPE，常见原因是 Glide Range/Glide Time
+（见 9.5）；没有退出码则看是否被关窗口/任务管理器结束。
+
+**Q：OSD 提示 `SUPPORTED OSD TYPE NOT FOUND` 或 `OSD IS DISABLED`？**
+
+A：确认 Other features 里 OSD 打开、Video system = AVATAR、UART4 = MSP DisplayPort；
+Glide 元素保持隐藏。
+
+**Q：怎么恢复一份干净配置？**
+
+A：`.\hidctl.cmd backup eeprom --name before` → `.\hidctl.cmd reset eeprom --yes` →
+`.\hidctl.cmd start sitl` → `.\hidctl.cmd config load`。
+
+**Q：这套配置能直接上真机吗？**
+
+A：不能。它只用于 SITL；真机需要重新做传感器校准、舵机方向、failsafe 和 PID 验证。
+
+---
+
+## 12. 与 main（macOS）分支的差异
 
 | 方面 | main | windows |
 |---|---|---|
@@ -526,13 +960,13 @@ Configurator 的 OSD 页面取消勾选 **Glide Range** / **Glide Time Remaining
 | 端口连接 | `lsof -iTCP` | `netstat -ano` |
 | X-Plane 探测 | `.app` + `Info.plist` + `pgrep` | 注册表 Steam 路径 + `tasklist` + 版本资源 |
 | 插件路径 | `mac.xpl` | `win.xpl` |
-| 键盘 | CoreGraphics + 输入监控权限 | `GetAsyncKeyState`，无需权限 |
+| 键盘 | CoreGraphics + 输入监控权限 | `GetAsyncKeyState`，默认仅 X-Plane 前台，支持组合键 |
 | 日志跟随 | `tail -f` | Python 轮询 |
 | 依赖目录 | 无 | 可选 `.deps\`（pygame） |
 
 ---
 
-## 8. 参考
+## 13. 参考
 
 - INAV SITL：<https://github.com/iNavFlight/inav/blob/master/docs/SITL/SITL.md>
 - INAV X-Plane：<https://github.com/iNavFlight/inav/blob/master/docs/SITL/X-Plane.md>
