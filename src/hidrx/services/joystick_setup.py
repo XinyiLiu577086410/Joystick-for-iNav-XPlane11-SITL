@@ -244,19 +244,23 @@ class JoystickSetupService:
             )
 
         for attempt in range(3):
-            suffix = "" if attempt == 0 else "（上一次检测到重复轴，请重新做一次）"
-            prompt(
-                "模式 mode：把模式旋钮依次经过 6 个档位，然后停在任意档并保持约 1 秒"
-                + suffix
-            )
-            mode_axis, _ = detect_axis(
-                device,
-                self.timeout,
-                threshold=0.2,
-                hold_seconds=self.hold_seconds,
-                exclude_axes=set(used_axes),
-            )
-            prompt(f"已检测到 模式 mode：axis {mode_axis}")
+            suffix = "" if attempt == 0 else "（上一次没有检测到，请重新做一次）"
+            prompt("模式 mode：把模式旋钮转到最低档（第 1 档）" + suffix)
+            confirm("确认模式旋钮在最低档")
+            prompt("模式 mode：现在把旋钮转到最高档（第 6 档），保持约 1 秒")
+            try:
+                mode_axis, mode_delta = detect_axis(
+                    device,
+                    self.timeout,
+                    threshold=0.15,
+                    hold_seconds=self.hold_seconds,
+                    exclude_axes=set(used_axes),
+                )
+            except SetupError:
+                if attempt == 2:
+                    raise
+                continue
+            prompt(f"已检测到 模式 mode：axis {mode_axis}，变化 {mode_delta:+.2f}")
             confirm("确认这一项，再采集下一项")
             if mode_axis in used_axes:
                 prompt(
@@ -272,12 +276,13 @@ class JoystickSetupService:
                     kind="multi",
                     levels=6,
                     values=list(MODE_VALUES),
+                    reverse=mode_delta < 0,
                 )
             )
             time.sleep(0.2)
             break
         else:
-            raise SetupError("mode: 连续 3 次检测到已占用轴；模式档位必须使用独立旋钮")
+            raise SetupError("mode: 连续 3 次没有检测到最低档到最高档的移动")
 
         wp_button, wp_inverted = detect_switch(
             device,
