@@ -15,6 +15,7 @@ from ..models import ProcessHandle
 from ..platform.factory import create_platform
 from ..services.bridge import BridgeService
 from ..services.config import ConfigService
+from ..services.cli import CliError, read_commands, run_cli
 from ..services.doctor import DoctorService
 from ..services.eeprom import EepromError, EepromService
 from ..services.inav import InavError, InavService
@@ -39,6 +40,12 @@ def build_parser() -> argparse.ArgumentParser:
     config = sub.add_parser("config", help="configuration checks")
     config_sub = config.add_subparsers(dest="config_command", required=True)
     config_sub.add_parser("check", help="load and validate hid2msp_inav.json")
+    config_load = config_sub.add_parser("load", help="send a CLI file to SITL UART1")
+    config_load.add_argument("--file", type=Path, default=None)
+    config_load.add_argument("--port", type=int, default=5760)
+    config_load.add_argument("--no-save", action="store_true")
+    config_load.add_argument("--inav-version", default=None)
+    config_load.add_argument("--inav-path", type=Path, default=None)
 
     setup = sub.add_parser("setup", help="interactive setup (no defaults)")
     setup_sub = setup.add_subparsers(dest="setup_command", required=True)
@@ -145,7 +152,34 @@ def cmd_inav(context: Context, args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_config_load(context: Context, args: argparse.Namespace) -> int:
+    selection = context.inav.resolve(args.inav_version, args.inav_path)
+    path = args.file or selection.cli_config
+    if path is None:
+        print(
+            f"no CLI config for INAV {selection.install.version}; "
+            f"expected {context.paths.config_dir / 'inav' / selection.install.version / 'minimal.txt'}",
+            file=sys.stderr,
+        )
+        return 1
+    commands = read_commands(Path(path))
+    if not commands:
+        print(f"no CLI commands in {path}", file=sys.stderr)
+        return 1
+    print(f"loading {len(commands)} commands from {path} into 127.0.0.1:{args.port}")
+    result = run_cli(commands, port=args.port, save=not args.no_save)
+    print(f"sent {result.sent} commands" + (" and save" if not args.no_save else " (not saved)"))
+    if result.errors:
+        for line in result.errors[:20]:
+            print(f"  {line}", file=sys.stderr)
+        return 1
+    print("no CLI error lines")
+    return 0
+
+
 def cmd_config(context: Context, args: argparse.Namespace) -> int:
+    if args.config_command == "load":
+        return cmd_config_load(context, args)
     config = context.config.load()
     errors = []
     try:
@@ -425,7 +459,7 @@ def main(argv=None) -> int:
             return cmd_status(context, args)
         if args.command == "doctor":
             return cmd_doctor(context)
-    except (InavError, ConfigError, StartupError, EepromError, OSError) as exc:
+    except (InavError, ConfigError, StartupError, EepromError, CliError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     return 1
