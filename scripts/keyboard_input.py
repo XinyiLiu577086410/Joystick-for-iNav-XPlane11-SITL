@@ -164,23 +164,23 @@ _MODIFIER_ORDER = ("ctrl", "shift", "alt", "win")
 _MODIFIER_VKS = {0x10, 0x11, 0x12, 0x5B, 0x5C}
 _WIN_VKS = (0x5B, 0x5C)
 
-DEFAULT_KEYS: Dict[str, str] = {
-    "roll_left": "a",
-    "roll_right": "d",
-    "pitch_up": "w",
-    "pitch_down": "s",
-    "yaw_left": "q",
-    "yaw_right": "e",
-    "arm": "space",
-    "throttle_up": "left_shift",
-    "throttle_down": "left_control",
-    "mode_1": "1",
-    "mode_2": "2",
-    "mode_3": "3",
-    "mode_4": "4",
-    "mode_5": "5",
-    "mode_6": "6",
-}
+KEYBOARD_ACTIONS: Tuple[str, ...] = (
+    "roll_left",
+    "roll_right",
+    "pitch_up",
+    "pitch_down",
+    "yaw_left",
+    "yaw_right",
+    "throttle_up",
+    "throttle_down",
+    "arm",
+    "mode_1",
+    "mode_2",
+    "mode_3",
+    "mode_4",
+    "mode_5",
+    "mode_6",
+)
 
 MODE_VALUES = (1000, 1200, 1400, 1600, 1800, 2000)
 
@@ -419,7 +419,7 @@ class KeyboardConfig:
     source: str = "auto"  # auto | hid | keyboard
     axis_rate: float = 600.0  # PWM units per second
     throttle_rate: float = 600.0
-    keys: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_KEYS))
+    keys: Dict[str, str] = field(default_factory=dict)
     foreground_only: bool = True
     window_process: str = "X-Plane.exe"
 
@@ -440,6 +440,14 @@ class KeyboardInput:
 
     def __init__(self, config: KeyboardConfig) -> None:
         self.config = config
+        missing = [action for action in KEYBOARD_ACTIONS if action not in config.keys]
+        if missing:
+            raise RuntimeError(
+                "keyboard is not configured (missing: "
+                + ", ".join(missing)
+                + "); run: .\\hidctl.cmd setup keyboard"
+            )
+
         self.combos: Dict[str, KeyCombo] = {}
         for action, key in config.keys.items():
             try:

@@ -163,6 +163,26 @@ python scripts\hid2msp.py --list
 会打印设备名、轴数/按键数，并实时显示 `axes=[...] buttons=[...]`。轴编号因 SDL/Windows 而异，
 换手柄或换机器后建议跑一次 `.\hidctl.cmd setup`。
 
+### 2.6 首次安装：必须跑 setup
+
+仓库**不再附带**任何默认手柄轴映射或键盘键位。第一次使用必须生成
+`config\hid2msp_inav.json`：
+
+```powershell
+# 有手柄：标定轴、方向、开关
+.\hidctl.cmd setup
+
+# 只用键盘：设置每个动作的键位（支持组合键）
+.\hidctl.cmd setup keyboard
+```
+
+两个向导都会在结束时写入 `config\hid2msp_inav.json` 并自动校验。该文件已被
+`.gitignore` 排除，不会随仓库分发；换机器/换手柄/换键位时重新跑对应向导即可。
+
+没有这个文件时，`hidctl.cmd start bridge` 会拒绝启动并提示先运行 `setup`；
+即使强行启动，`hid2msp.py` 也会报 `no HID mapping configured` 或
+`keyboard is not configured`。
+
 ---
 
 ## 3. 快速启动
@@ -240,7 +260,8 @@ hitl    installed v1.5.0  link: disconnected  (X-Plane plugin)
 
 ### 4.1 通道表
 
-当前配置见 [config/hid2msp_inav.json](config/hid2msp_inav.json)：
+下面是一份运行 `hidctl.cmd setup` 后的示例；仓库不附带默认映射，实际值以
+`config\hid2msp_inav.json` 为准：
 
 | 通道 | 功能 | 来源 |
 |---|---|---|
@@ -273,7 +294,7 @@ hitl    installed v1.5.0  link: disconnected  (X-Plane plugin)
 键盘输入只在 **X-Plane 是当前最上层窗口** 时生效；切到浏览器、终端或其他软件时，
 按键会被忽略，摇杆自动回中、油门保持、解锁状态不变，不会误触。
 
-当前配置的键位：
+当前本机的键位示例（`hidctl.cmd setup keyboard` 生成；仓库不附带默认键位）：
 
 | 键 | 功能 |
 |---|---|
@@ -389,6 +410,8 @@ python scripts\hid2msp.py --keys     # 不接 SITL，直接看键盘通道
 `channel_map` 和 `mode_table` 只是给人看的文档字段，程序会忽略。
 
 ### 4.5 HID 设置向导（重新标定轴和方向）
+
+首次安装或换手柄时运行；结束后生成/覆盖 `config\hid2msp_inav.json`（已被忽略）：
 
 同一只手柄在 macOS 和 Windows 上 SDL 的轴编号可能不同，换机器或换手柄后建议跑一次：
 
@@ -566,8 +589,8 @@ Joystick-for-iNav-XPlane11-SITL\
 ├─ hidctl.cmd / hidctl.py       统一入口：启停、状态、日志、备份、恢复、配置加载
 ├─ scripts\                     桥、键盘、标定、日志泵、MSP 调试工具
 ├─ config\
-│  ├─ hid2msp_inav.json         当前 HID/键盘映射（实际使用）
-│  ├─ hid2msp.example.json      通用 Xbox 风格示例（仅参考）
+│  ├─ hid2msp_inav.json         本机映射（setup 生成，已忽略）
+│  ├─ hid2msp.example.json      空模板（仅参考）
 │  ├─ INAV_SITL_MINIMAL_NODEFAULTS.txt  SITL CLI 源配置
 │  ├─ calibration.json          可选标定结果（忽略）
 │  └─ runtime\
@@ -583,7 +606,7 @@ Joystick-for-iNav-XPlane11-SITL\
 |---|---|---|---|
 | SITL 运行时配置 | `config\runtime\plane.bin` | SITL 每次启动 | 真正的飞控 eeprom |
 | SITL 源配置 | `config\INAV_SITL_MINIMAL_NODEFAULTS.txt` | 人/Configurator CLI | 可读写的 CLI 源文件，加载后生效 |
-| HID 映射 | `config\hid2msp_inav.json` | `hid2msp.py` | 轴/按键/键盘 → CH1–CH9 |
+| HID 映射 | `config\hid2msp_inav.json` | `hid2msp.py` | 轴/按键/键盘 → CH1–CH9；`setup` 生成，已忽略 |
 | 标定结果 | `config\calibration.json` | 人/`calibrate_hid.py` | 可选，忽略 |
 | 运行状态 | `run\*.pid`、`run\hidctl.lock` | `hidctl` | 进程管理与互斥 |
 | 日志 | `logs\` | 人 | 排错、MSP 抓包、观察记录 |
@@ -922,6 +945,11 @@ A：`.\hidctl.cmd setup keyboard`，在 `Arm / disarm` 步骤按住 `Ctrl+Shift`
 **Q：手柄和键盘谁优先？**
 
 A：`keyboard.source`：`auto` 有手柄用手柄，否则键盘；`hid` 强制手柄；`keyboard` 强制键盘。
+
+**Q：启动 bridge 提示 `no HID mapping configured` / `keyboard is not configured`？**
+
+A：还没有生成本机配置。先跑 `.\hidctl.cmd setup`（手柄）或
+`.\hidctl.cmd setup keyboard`（键盘），会写出 `config\hid2msp_inav.json`。
 
 **Q：Configurator 连不上 5760？**
 

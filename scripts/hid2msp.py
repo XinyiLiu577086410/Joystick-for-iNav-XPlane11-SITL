@@ -42,7 +42,6 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from keyboard_input import (
-    DEFAULT_KEYS,
     KeyboardConfig,
     KeyboardInput,
     monitor_keyboard,
@@ -176,22 +175,9 @@ class Config:
 
 
 def default_config() -> Config:
-    # Xbox-style SDL mapping: 0=LX, 1=LY, 2=RX, 3=RY, 4=LT, 5=RT.
-    # Adjust with --list if your controller enumerates differently.
-    return Config(
-        axes=[
-            AxisMap(axis=0, channel=1, kind="bipolar", trim=1500),             # roll
-            AxisMap(axis=1, channel=2, kind="bipolar", trim=1500, reverse=True),  # pitch
-            AxisMap(axis=5, channel=3, kind="unipolar", trim=1000),            # throttle (RT)
-            AxisMap(axis=2, channel=4, kind="bipolar", trim=1500),             # yaw
-        ],
-        buttons=[
-            ButtonMap(button=0, channel=5, toggle=True),   # arm
-            ButtonMap(button=1, channel=6, toggle=True),   # ANGLE/HORIZON
-            ButtonMap(button=2, channel=7, toggle=True),   # extra mode
-            ButtonMap(button=3, channel=8, toggle=True),   # extra mode
-        ],
-    )
+    # No built-in HID/keyboard mapping: run `hidctl setup` / `setup keyboard`
+    # once to generate config/hid2msp_inav.json for this machine.
+    return Config()
 
 
 def load_config(path: Optional[str]) -> Config:
@@ -220,7 +206,7 @@ def load_config(path: Optional[str]) -> Config:
         source = str(raw.get("source", "auto")).lower()
         if source not in ("auto", "hid", "keyboard"):
             raise ValueError("keyboard.source must be auto, hid, or keyboard")
-        keys = dict(DEFAULT_KEYS)
+        keys = {}
         raw_keys = raw.get("keys") or {}
         if not isinstance(raw_keys, dict):
             raise ValueError("keyboard.keys must be an object")
@@ -460,6 +446,14 @@ def run(cfg: Config, test: bool, once: bool, verbose: bool) -> int:
             print(f"invalid keyboard source: {source}", file=sys.stderr)
             link.close()
             return 2
+
+    if gamepad is not None and not (cfg.axes or cfg.buttons or cfg.buttons3 or cfg.combine):
+        print(
+            "no HID mapping configured; run: .\\hidctl.cmd setup",
+            file=sys.stderr,
+        )
+        link.close()
+        return 2
 
     period = 1.0 / max(1.0, cfg.rate_hz)
     toggles: Dict[int, bool] = {}

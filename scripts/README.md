@@ -11,6 +11,9 @@
 | `keyboard_input.py` | Windows 键盘读取（`GetAsyncKeyState`）、X-Plane 前台检测、组合键、键位映射与键盘通道生成 |
 | `calibrate_hid.py` | 交互式标定 AETR 轴，结果写入 `config/calibration.json` |
 
+首次安装必须运行 `.\hidctl.cmd setup`（手柄）或 `.\hidctl.cmd setup keyboard`（键盘）；
+生成的 `config/hid2msp_inav.json` 已被 `.gitignore` 排除，仓库不附带默认映射。
+
 ## 常用命令（在仓库根目录执行）
 
 ```powershell

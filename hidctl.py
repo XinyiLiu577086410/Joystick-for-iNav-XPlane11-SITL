@@ -51,7 +51,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 if (ROOT / ".deps").is_dir():
     sys.path.insert(0, str(ROOT / ".deps"))
 from keyboard_input import (  # noqa: E402
-    DEFAULT_KEYS,
+    KEYBOARD_ACTIONS,
     capture_combo,
     input_available,
     normalize_combo,
@@ -685,6 +685,8 @@ def start_bridge(wait: bool = True) -> int:
 
     if not HID_CONFIG.is_file():
         err(f"HID config not found: {HID_CONFIG}")
+        err("run: .\\hidctl.cmd setup          (gamepad)")
+        err("or:  .\\hidctl.cmd setup keyboard (keyboard only)")
         return 1
     if not BRIDGE.is_file():
         err(f"bridge script not found: {BRIDGE}")
@@ -1338,6 +1340,13 @@ def validate_config(path: Path) -> list[str]:
         errors.append("rate_hz must be > 0")
 
     channels: dict[int, str] = {}
+    has_mapping = bool(
+        data.get("axes")
+        or data.get("buttons")
+        or data.get("buttons3")
+        or data.get("combine")
+        or data.get("constants")
+    )
 
     def claim(channel: int, where: str) -> None:
         _check_channel(channel, where, errors)
@@ -1437,7 +1446,7 @@ def validate_config(path: Path) -> list[str]:
             else:
                 used_keys: dict[str, str] = {}
                 for action, key_name in keys.items():
-                    if action not in DEFAULT_KEYS:
+                    if action not in KEYBOARD_ACTIONS:
                         errors.append(f"keyboard.keys.{action}: unknown action")
                     try:
                         canonical = normalize_combo(key_name)
@@ -1451,6 +1460,10 @@ def validate_config(path: Path) -> list[str]:
                             f"{used_keys[canonical]}"
                         )
                     used_keys[canonical] = action
+                has_mapping = has_mapping or bool(keys)
+
+    if not has_mapping:
+        errors.append("no mappings configured; run: .\\hidctl.cmd setup (or setup keyboard)")
 
     return errors
 
@@ -1477,7 +1490,7 @@ def cmd_config_show() -> int:
 
 
 def cmd_invert(channel: int, restart: bool = False) -> int:
-    data = json.loads(HID_CONFIG.read_text(encoding="utf-8"))
+    data = _read_hid_data()
     target = None
     for item in data.get("axes", []):
         if item.get("channel") == channel:
@@ -1755,6 +1768,33 @@ def _detect_switch(pad, label: str) -> tuple[int, bool] | None:
     return None
 
 
+def _new_hid_data() -> dict:
+    """Blank config written by the setup wizards; no default mapping."""
+    return {
+        "host": "127.0.0.1",
+        "port": 5762,
+        "rate_hz": 50,
+        "axes": [],
+        "buttons": [],
+        "constants": {},
+        "keyboard": {
+            "enabled": True,
+            "source": "auto",
+            "foreground_only": True,
+            "window_process": "X-Plane.exe",
+            "axis_rate": 600,
+            "throttle_rate": 600,
+            "keys": {},
+        },
+    }
+
+
+def _read_hid_data() -> dict:
+    if not HID_CONFIG.is_file():
+        return _new_hid_data()
+    return json.loads(HID_CONFIG.read_text(encoding="utf-8"))
+
+
 def cmd_setup(no_write: bool = False, restart: bool = False) -> int:
     try:
         import hid2msp
@@ -1865,7 +1905,7 @@ def cmd_setup(no_write: bool = False, restart: bool = False) -> int:
             }
         )
 
-    data = json.loads(HID_CONFIG.read_text(encoding="utf-8"))
+    data = _read_hid_data()
     data["axes"] = axes
     data["buttons"] = buttons
     data["constants"] = {"9": 2000}
@@ -1902,7 +1942,8 @@ def cmd_setup(no_write: bool = False, restart: bool = False) -> int:
 
     backup = HID_CONFIG.with_suffix(".json.bak")
     try:
-        shutil.copyfile(HID_CONFIG, backup)
+        if HID_CONFIG.is_file():
+            shutil.copyfile(HID_CONFIG, backup)
         HID_CONFIG.write_text(
             json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
@@ -1965,7 +2006,7 @@ def _flush_console_input() -> None:
 
 def cmd_setup_keyboard(no_write: bool = False, restart: bool = False) -> int:
     try:
-        data = json.loads(HID_CONFIG.read_text(encoding="utf-8"))
+        data = _read_hid_data()
     except (OSError, ValueError) as exc:
         err(f"cannot read {display_path(HID_CONFIG)}: {exc}")
         return 1
@@ -1976,7 +2017,7 @@ def cmd_setup_keyboard(no_write: bool = False, restart: bool = False) -> int:
         err("keyboard: must be an object")
         return 1
 
-    keys = dict(DEFAULT_KEYS)
+    keys: dict[str, str] = {}
     keys.update({str(k): str(v) for k, v in (keyboard.get("keys") or {}).items()})
 
     print("=== keyboard binding setup ===")
@@ -2039,6 +2080,12 @@ def cmd_setup_keyboard(no_write: bool = False, restart: bool = False) -> int:
     for action, label in KEYBOARD_SETUP_STEPS:
         print(f"{label:<20} {keys.get(action, '')}")
 
+    missing = [action for action in KEYBOARD_ACTIONS if action not in keys]
+    if missing:
+        err("keyboard config incomplete: " + ", ".join(missing))
+        err("run the wizard again and set every action (or press s only if it already has a key)")
+        return 1
+
     keyboard["keys"] = keys
     keyboard.setdefault("enabled", True)
     keyboard.setdefault("source", "auto")
@@ -2052,7 +2099,8 @@ def cmd_setup_keyboard(no_write: bool = False, restart: bool = False) -> int:
 
     backup = HID_CONFIG.with_suffix(".json.bak")
     try:
-        shutil.copyfile(HID_CONFIG, backup)
+        if HID_CONFIG.is_file():
+            shutil.copyfile(HID_CONFIG, backup)
         HID_CONFIG.write_text(
             json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
@@ -2249,8 +2297,11 @@ def cmd_doctor() -> int:
             )
         )
 
-    errors = validate_config(HID_CONFIG)
-    checks.append(("HID config", not errors, f"{len(errors)} error(s)" if errors else "ok"))
+    if not HID_CONFIG.is_file():
+        checks.append(("HID config", False, "missing; run setup"))
+    else:
+        errors = validate_config(HID_CONFIG)
+        checks.append(("HID config", not errors, f"{len(errors)} error(s)" if errors else "ok"))
 
     eeprom_ok = (
         EEPROM.is_file() and EEPROM.stat().st_size >= 8192 and EEPROM.stat().st_size % 4096 == 0

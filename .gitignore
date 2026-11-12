@@ -9,6 +9,7 @@
 /logs/
 /config/runtime/
 /config/calibration.json
+/config/hid2msp_inav.json
 __pycache__/
 *.pyc
 *.log
