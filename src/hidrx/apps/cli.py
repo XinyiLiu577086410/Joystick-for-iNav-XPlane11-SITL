@@ -219,6 +219,7 @@ def cmd_setup(context: Context, args: argparse.Namespace) -> int:
             keys = service.capture_all(
                 capture,
                 prompt=prompt,
+                report=lambda text: print(text, flush=True),
             )
             service.save(keys)
         except (SetupError, ValueError, KeyboardInterrupt) as exc:

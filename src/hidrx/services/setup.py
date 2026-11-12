@@ -30,25 +30,36 @@ class KeyboardSetupService:
         self,
         capture: Capture,
         prompt: Callable[[str], None] = lambda action: None,
+        report: Callable[[str], None] = lambda text: None,
     ) -> Dict[str, str]:
         keys: Dict[str, str] = {}
         used: Dict[str, str] = {}
         for action in self.actions:
-            prompt(action)
             label = KEYBOARD_ACTION_LABELS.get(action, action)
-            binding = capture(action)
-            if not binding:
-                raise SetupError(f"没有捕获到「{label}」的按键")
-            self.keyboard.validate(binding)
-            canonical = binding.strip().lower()
-            if canonical in used:
-                previous = KEYBOARD_ACTION_LABELS.get(used[canonical], used[canonical])
-                raise SetupError(
-                    f"「{label}」的按键 {binding!r} 已被「{previous}」使用；"
-                    "请换一个按键，重新运行 setup keyboard"
-                )
-            used[canonical] = action
-            keys[action] = binding
+            for attempt in range(3):
+                prompt(action)
+                binding = capture(action)
+                if not binding:
+                    report(f"「{label}」没有捕获到按键，重试")
+                    continue
+                try:
+                    self.keyboard.validate(binding)
+                except ValueError as exc:
+                    report(f"「{label}」的按键 {binding!r} 无效：{exc}，重试")
+                    continue
+                canonical = binding.strip().lower()
+                if canonical in used:
+                    previous = KEYBOARD_ACTION_LABELS.get(used[canonical], used[canonical])
+                    report(
+                        f"「{label}」的按键 {binding!r} 已被「{previous}」使用；"
+                        "请换一个按键，重试"
+                    )
+                    continue
+                used[canonical] = action
+                keys[action] = binding
+                break
+            else:
+                raise SetupError(f"「{label}」连续 3 次没有采集到唯一有效按键")
         return keys
 
     def save(self, keys: Dict[str, str]) -> BridgeConfig:
