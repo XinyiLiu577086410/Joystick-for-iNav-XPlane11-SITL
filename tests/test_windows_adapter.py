@@ -47,7 +47,7 @@ class Win32ProcessManagerTests(unittest.TestCase):
             log = Path(tmp) / "child.log"
             handle = manager.spawn(
                 ProcessSpec(
-                    argv=("cmd", "/c", "ping", "-n", "6", "127.0.0.1", ">", "nul"),
+                    argv=(sys.executable, "-c", "import time; time.sleep(10)"),
                     cwd=Path(tmp),
                     log_path=log,
                 )

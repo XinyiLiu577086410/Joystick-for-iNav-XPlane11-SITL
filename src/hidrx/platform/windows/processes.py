@@ -135,7 +135,7 @@ class Win32ProcessManager:
         if spec.env:
             env = dict(os.environ)
             env.update(spec.env)
-        flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP if spec.detached else 0
+        flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW if spec.detached else 0
         with spec.log_path.open("ab") as log:
             proc = subprocess.Popen(
                 list(spec.argv),
