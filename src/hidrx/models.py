@@ -42,6 +42,14 @@ class InavSelection:
 
 
 @dataclass(frozen=True)
+class EepromMeta:
+    version: str
+    build: str
+    platform: str
+    sha256: str = ""
+
+
+@dataclass(frozen=True)
 class KeyboardCapabilities:
     global_keyboard: bool = True
     foreground_gate: bool = True
