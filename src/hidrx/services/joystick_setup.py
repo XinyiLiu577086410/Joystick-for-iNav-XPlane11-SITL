@@ -37,16 +37,21 @@ def detect_axis(
 
 def detect_button(
     device: GamepadDevice,
-    timeout: float = 10.0,
+    timeout: float = 15.0,
     interval: float = 0.02,
 ) -> int:
     _, baseline = device.snapshot()
+    held = next((index for index, pressed in enumerate(baseline) if pressed), None)
     deadline = time.monotonic() + timeout
+    held_deadline = time.monotonic() + 0.5 if held is not None else None
     while time.monotonic() < deadline:
         _, buttons = device.snapshot()
         for index, pressed in enumerate(buttons):
-            if pressed and (index >= len(baseline) or not baseline[index]):
+            was_pressed = index < len(baseline) and baseline[index]
+            if bool(pressed) != bool(was_pressed):
                 return index
+        if held is not None and held_deadline is not None and time.monotonic() >= held_deadline:
+            return held
         time.sleep(interval)
     raise SetupError("timed out waiting for button press")
 
@@ -197,8 +202,8 @@ class JoystickSetupService:
         else:
             raise SetupError("mode: 连续 3 次检测到已占用轴；模式档位必须使用独立旋钮")
 
-        prompt("arm：按一下平时用于解锁/上锁的按钮，保持约 0.2 秒")
-        arm_button = detect_button(device, self.timeout)
+        prompt("arm：按一下平时用于解锁/上锁的按钮，保持约 0.2 秒；如果是拨动开关，直接拨到解锁侧")
+        arm_button = detect_button(device, max(self.timeout, 15.0))
         prompt(f"已检测到 arm：button {arm_button}")
         confirm("确认这一项，完成设置")
         buttons = [ButtonMap(button=arm_button, channel=7, toggle=True)]

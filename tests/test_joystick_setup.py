@@ -45,6 +45,14 @@ class DetectionTests(unittest.TestCase):
         device = FakeGamepad([([0.0], [0, 0]), ([0.0], [0, 1])])
         self.assertEqual(detect_button(device, timeout=1.0), 1)
 
+    def test_detect_button_already_held(self) -> None:
+        device = FakeGamepad([([0.0], [1, 0])])
+        self.assertEqual(detect_button(device, timeout=2.0), 0)
+
+    def test_detect_button_release(self) -> None:
+        device = FakeGamepad([([0.0], [1, 0]), ([0.0], [0, 0])])
+        self.assertEqual(detect_button(device, timeout=1.0), 0)
+
     def test_timeout(self) -> None:
         device = FakeGamepad([([0.0], [0, 0])])
         with self.assertRaises(SetupError):
