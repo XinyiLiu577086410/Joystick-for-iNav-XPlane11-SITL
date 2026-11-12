@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from typing import List, Sequence, Tuple
@@ -37,7 +38,7 @@ class FakeGamepad:
 class DetectionTests(unittest.TestCase):
     def test_detect_axis(self) -> None:
         device = FakeGamepad([([0.0, 0.0], [0, 0]), ([0.0, 0.9], [0, 0])])
-        axis, delta = detect_axis(device, timeout=1.0)
+        axis, delta = detect_axis(device, timeout=1.0, hold_seconds=0.0)
         self.assertEqual(axis, 1)
         self.assertAlmostEqual(delta, 0.9)
 
@@ -58,6 +59,13 @@ class DetectionTests(unittest.TestCase):
         device = FakeGamepad([([0.0], [0, 0])])
         with self.assertRaises(SetupError):
             detect_axis(device, timeout=0.05)
+
+    def test_detect_axis_requires_hold(self) -> None:
+        device = FakeGamepad([([0.0], [0]), ([1.0], [0])])
+        started = time.monotonic()
+        axis, delta = detect_axis(device, timeout=1.0, hold_seconds=0.2)
+        self.assertEqual(axis, 0)
+        self.assertGreaterEqual(time.monotonic() - started, 0.18)
 
 
 class SetupSaveTests(unittest.TestCase):
@@ -100,7 +108,13 @@ class SetupSaveTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            service = JoystickSetupService(path, "fake", "fake", timeout=1.0)
+            service = JoystickSetupService(
+                path,
+                "fake",
+                "fake",
+                timeout=1.0,
+                hold_seconds=0.0,
+            )
             confirmed = []
             config = service.capture(
                 FakeGamepad(self._frames()),

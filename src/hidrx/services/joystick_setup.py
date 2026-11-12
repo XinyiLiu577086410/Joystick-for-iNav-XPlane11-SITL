@@ -18,21 +18,38 @@ from .setup import SetupError
 def detect_axis(
     device: GamepadDevice,
     timeout: float = 10.0,
-    threshold: float = 0.35,
+    threshold: float = 0.7,
+    hold_seconds: float = 1.0,
     interval: float = 0.02,
 ) -> tuple[int, float]:
     baseline, _ = device.snapshot()
     deadline = time.monotonic() + timeout
+    candidate_axis: int | None = None
+    candidate_sign = 0
+    hold_start: float | None = None
     while time.monotonic() < deadline:
+        now = time.monotonic()
         axes, _ = device.snapshot()
         if len(axes) == len(baseline):
-            deltas = [abs(axes[i] - baseline[i]) for i in range(len(axes))]
+            deltas = [axes[i] - baseline[i] for i in range(len(axes))]
             if deltas:
-                axis = max(range(len(deltas)), key=deltas.__getitem__)
-                if deltas[axis] > threshold:
-                    return axis, axes[axis] - baseline[axis]
+                axis = max(range(len(deltas)), key=lambda index: abs(deltas[index]))
+                delta = deltas[axis]
+                sign = 1 if delta > 0 else -1
+                if abs(delta) >= threshold:
+                    if hold_seconds <= 0:
+                        return axis, delta
+                    if axis != candidate_axis or sign != candidate_sign:
+                        candidate_axis = axis
+                        candidate_sign = sign
+                        hold_start = now
+                    elif hold_start is not None and now - hold_start >= hold_seconds:
+                        return axis, delta
+                else:
+                    candidate_axis = None
+                    hold_start = None
         time.sleep(interval)
-    raise SetupError("timed out waiting for axis movement")
+    raise SetupError("timed out waiting for a stick to reach its maximum and hold")
 
 
 def detect_button(
@@ -91,6 +108,7 @@ class JoystickSetupService:
     platform_id: str
     keyboard_backend: str
     timeout: float = 10.0
+    hold_seconds: float = 1.0
 
     def _sample_direction(
         self,
@@ -110,7 +128,11 @@ class JoystickSetupService:
                 text += "（上一次没有检测到，请重试）"
             prompt(text)
             try:
-                axis, delta = detect_axis(device, self.timeout)
+                axis, delta = detect_axis(
+                    device,
+                    self.timeout,
+                    hold_seconds=self.hold_seconds,
+                )
             except SetupError:
                 if attempt == 2:
                     raise
@@ -207,7 +229,7 @@ class JoystickSetupService:
                 "模式 mode：把模式旋钮依次经过 6 个档位，然后停在任意档并保持约 1 秒"
                 + suffix
             )
-            mode_axis, _ = detect_axis(device, self.timeout)
+            mode_axis, _ = detect_axis(device, self.timeout, hold_seconds=self.hold_seconds)
             prompt(f"已检测到 模式 mode：axis {mode_axis}")
             confirm("确认这一项，再采集下一项")
             if mode_axis in used_axes:
