@@ -81,6 +81,8 @@ class SetupSaveTests(unittest.TestCase):
             ([0.0, 0.0, 0.0, 0.9, 0.0], [0, 0]),  # throttle high
             ([0.0, 0.0, 0.0, 0.0, 0.0], [0, 0]),  # mode baseline
             ([0.0, 0.0, 0.0, 0.0, 0.8], [0, 0]),  # mode
+            ([0.0, 0.0], [0, 0]),  # NAV WP low
+            ([0.0, 0.0], [0, 1]),  # NAV WP high
             ([0.0, 0.0], [0, 0]),  # arm baseline
             ([0.0, 0.0], [1, 0]),  # arm
         ]
@@ -106,8 +108,8 @@ class SetupSaveTests(unittest.TestCase):
             )
             self.assertEqual([item.channel for item in config.axes], [1, 2, 4, 3, 8])
             self.assertEqual(config.axes[-1].kind, "multi")
-            self.assertEqual(config.buttons[0].channel, 7)
-            self.assertEqual(len(confirmed), 10)
+            self.assertEqual([item.channel for item in config.buttons], [6, 7])
+            self.assertEqual(len(confirmed), 12)
             service.save(config)
             loaded = load_config(path)
             self.assertEqual(loaded.keyboard.keys["arm"], "ctrl+a")

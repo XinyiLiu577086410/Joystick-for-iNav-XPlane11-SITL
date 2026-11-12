@@ -54,6 +54,37 @@ def detect_button(
     raise SetupError("timed out waiting for a button change" + hint)
 
 
+def detect_switch(
+    device: GamepadDevice,
+    label: str,
+    prompt: Callable[[str], None],
+    confirm: Callable[[str], None],
+    timeout: float = 15.0,
+    interval: float = 0.02,
+) -> tuple[int, bool]:
+    prompt(f"{label}：把开关拨到 LOW/关的位置")
+    confirm("确认 LOW 状态后开始检测 HIGH")
+    _, low = device.snapshot()
+    prompt(f"{label}：现在把开关拨到 HIGH/开的位置")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        _, high = device.snapshot()
+        changed = [
+            index
+            for index, pressed in enumerate(high)
+            if index < len(low) and bool(pressed) != bool(low[index])
+        ]
+        if len(changed) == 1:
+            button = changed[0]
+            prompt(f"已检测到 {label}：button {button}，HIGH={bool(high[button])}")
+            confirm("确认这一项，再采集下一项")
+            return button, not bool(high[button])
+        if len(changed) > 1:
+            prompt(f"{label}: 多个按钮同时变化 {changed}；只拨动一个开关，重试")
+        time.sleep(interval)
+    raise SetupError(f"{label}: 没有检测到开关变化")
+
+
 @dataclass
 class JoystickSetupService:
     config_path: Path
@@ -200,14 +231,41 @@ class JoystickSetupService:
         else:
             raise SetupError("mode: 连续 3 次检测到已占用轴；模式档位必须使用独立旋钮")
 
+        wp_button, wp_inverted = detect_switch(
+            device,
+            "CH6 NAV WP",
+            prompt,
+            confirm,
+            timeout=max(self.timeout, 15.0),
+        )
+        buttons = [
+            ButtonMap(
+                button=wp_button,
+                channel=6,
+                low=2000 if wp_inverted else 1000,
+                high=1000 if wp_inverted else 2000,
+                toggle=False,
+            )
+        ]
+
         prompt(
             "arm：按一下平时用于解锁/上锁的按钮，保持约 0.2 秒；"
             "如果是拨动开关，请拨动一次（拨到另一侧再拨回）"
         )
-        arm_button = detect_button(device, max(self.timeout, 15.0))
-        prompt(f"已检测到 arm：button {arm_button}")
-        confirm("确认这一项，完成设置")
-        buttons = [ButtonMap(button=arm_button, channel=7, toggle=True)]
+        for attempt in range(3):
+            arm_button = detect_button(device, max(self.timeout, 15.0))
+            if arm_button == wp_button:
+                prompt(
+                    f"CH6 NAV WP 和 arm 都检测到 button {arm_button}；"
+                    "请换一个按钮/开关给 arm，再试一次"
+                )
+                continue
+            prompt(f"已检测到 arm：button {arm_button}")
+            confirm("确认这一项，完成设置")
+            buttons.append(ButtonMap(button=arm_button, channel=7, toggle=True))
+            break
+        else:
+            raise SetupError("arm: 连续 3 次与 CH6 NAV WP 使用了同一个按钮")
 
         return BridgeConfig(
             platform=self.platform_id,

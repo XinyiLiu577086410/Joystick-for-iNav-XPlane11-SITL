@@ -60,6 +60,7 @@ hidrx setup keyboard
 - throttle → CH3
 - yaw → CH4
 - 模式旋钮 → CH8（6 档）
+- NAV WP 开关 → CH6（LOW/HIGH）
 - arm 按钮 → CH7
 
 写入配置并带上当前平台标识。
