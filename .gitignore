@@ -1,4 +1,4 @@
-# Upstream source repositories kept locally as references; not part of this repo.
+﻿# Upstream source repositories kept locally as references; not part of this repo.
 /3rdparty/inav/
 /3rdparty/inav-fork/
 /3rdparty/inav-configurator/
@@ -7,7 +7,8 @@
 # Runtime state, generated calibration, logs, OS cruft.
 /run/
 /logs/
-/config/runtime/
+/config/runtime/*
+!/config/runtime/10.0.0/
 /config/calibration.json
 /config/hid2msp_inav.json
 __pycache__/
