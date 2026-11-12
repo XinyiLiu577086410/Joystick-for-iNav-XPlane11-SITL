@@ -29,14 +29,16 @@ class PygameGamepad:
             raise GamepadError("pygame is not installed: python -m pip install pygame") from exc
         self._pygame = pygame
         pygame.init()
+        found = False
         for _ in range(2):
             pygame.joystick.init()
             pygame.event.pump()
             pygame.event.get()
             if pygame.joystick.get_count() > 0:
+                found = True
                 break
             pygame.joystick.quit()
-        if pygame.joystick.get_count() == 0:
+        if not found:
             raise GamepadError("no joystick/gamepad detected by SDL2")
         self._joy = pygame.joystick.Joystick(0)
         self._joy.init()
@@ -47,9 +49,21 @@ class PygameGamepad:
     def snapshot(self) -> Tuple[List[float], List[int]]:
         try:
             self._pygame.event.pump()
+            if self._pygame.joystick.get_count() == 0 or not self._joy.get_init():
+                raise GamepadError("joystick removed")
+            removed_event = getattr(self._pygame, "JOYDEVICEREMOVED", None)
+            if removed_event is not None:
+                for event in self._pygame.event.get():
+                    if (
+                        event.type == removed_event
+                        and getattr(event, "instance_id", None) == self._joy.get_instance_id()
+                    ):
+                        raise GamepadError("joystick removed")
             axes = [self._joy.get_axis(i) for i in range(self.num_axes)]
             buttons = [self._joy.get_button(i) for i in range(self.num_buttons)]
             return axes, buttons
+        except GamepadError:
+            raise
         except Exception as exc:
             raise GamepadError(str(exc)) from exc
 

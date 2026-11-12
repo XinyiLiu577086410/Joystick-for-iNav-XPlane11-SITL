@@ -109,9 +109,9 @@ class KeyboardMapper:
 
         pitch = PWM_MID
         if states.get("pitch_up") and not states.get("pitch_down"):
-            pitch = PWM_MAX
-        elif states.get("pitch_down") and not states.get("pitch_up"):
             pitch = PWM_MIN
+        elif states.get("pitch_down") and not states.get("pitch_up"):
+            pitch = PWM_MAX
 
         yaw = PWM_MID
         if states.get("yaw_left") and not states.get("yaw_right"):
