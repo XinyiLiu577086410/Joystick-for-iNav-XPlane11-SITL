@@ -241,7 +241,12 @@ class JoystickSetupService:
                 "模式 mode：把模式旋钮依次经过 6 个档位，然后停在任意档并保持约 1 秒"
                 + suffix
             )
-            mode_axis, _ = detect_axis(device, self.timeout, hold_seconds=self.hold_seconds)
+            mode_axis, _ = detect_axis(
+                device,
+                self.timeout,
+                threshold=0.2,
+                hold_seconds=self.hold_seconds,
+            )
             prompt(f"已检测到 模式 mode：axis {mode_axis}")
             confirm("确认这一项，再采集下一项")
             if mode_axis in used_axes:
